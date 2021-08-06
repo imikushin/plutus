@@ -7,11 +7,11 @@
 
 module Cardano.ChainIndex.ChainIndex
     ( processIndexEffects
+    , healthcheck
     , startWatching
     , watchedAddresses
     , confirmedBlocks
     , syncState
-    , healthcheck
     ) where
 
 import           Cardano.BM.Data.Trace            (Trace)
@@ -30,7 +30,7 @@ import           Ledger.Address                   (Address)
 import           Ledger.AddressMap                (AddressMap)
 import           Plutus.PAB.Monitoring.Monitoring (convertLog, handleLogMsgTrace)
 import           Wallet.Effects                   (ChainIndexEffect)
-import qualified Wallet.Effects                   as WalletEffects
+import qualified Wallet.Effects                   as ChainIndex
 import           Wallet.Emulator.ChainIndex       (ChainIndexControlEffect, ChainIndexEvent)
 import qualified Wallet.Emulator.ChainIndex       as ChainIndex
 import           Wallet.Emulator.NodeClient       (ChainClientNotification (BlockValidated, SlotChanged))
@@ -38,25 +38,45 @@ import           Wallet.Emulator.NodeClient       (ChainClientNotification (Bloc
 healthcheck :: Monad m => m NoContent
 healthcheck = pure NoContent
 
+-- TODO: Remove. Old chain index
 startWatching :: (Member ChainIndexEffect effs) => Address -> Eff effs NoContent
-startWatching addr = WalletEffects.startWatching addr >> pure NoContent
+startWatching addr = ChainIndex.startWatching addr >> pure NoContent
 
+-- TODO: Remove. Old chain index
 watchedAddresses :: (Member ChainIndexEffect effs) => Eff effs AddressMap
-watchedAddresses = WalletEffects.watchedAddresses
+watchedAddresses = ChainIndex.watchedAddresses
 
+-- TODO: Remove. Old chain index
 confirmedBlocks :: (Member ChainIndexEffect effs) => Eff effs [Block]
-confirmedBlocks = WalletEffects.confirmedBlocks
+confirmedBlocks = ChainIndex.confirmedBlocks
 
 -- | Update the chain index by asking the node for new blocks since the last
 --   time.
+--
+-- TODO: Remove. Old chain index.
 syncState ::
-    ( Member ChainIndexControlEffect effs)
+    ( Member ChainIndexControlEffect effs
+    )
     => Block
     -> Slot
     -> Eff effs ()
-syncState block slot =
+syncState block slot = do
     traverse_ ChainIndex.chainIndexNotify [BlockValidated block, SlotChanged slot]
 
+-- | Update the chain index by asking the node for new blocks since the last
+--   time.
+-- syncState ::
+--     ( Member ChainIndex.ChainIndexControlEffect effs
+--     , Member ChainIndex.ChainIndexQueryEffect effs
+--     )
+--     => Block
+--     -> Slot
+--     -> Eff effs ()
+-- syncState block slot = do
+--     currentTip <- ChainIndex.getTip
+--     appendNewTipBlock currentTip block slot
+
+-- TODO Remove. Uses old chain index
 processIndexEffects ::
     MonadIO m
     => ChainIndexTrace

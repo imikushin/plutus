@@ -47,8 +47,13 @@ app trace stateVar =
     serve (Proxy @API) $
     hoistServer
         (Proxy @API)
-        (liftIO . processIndexEffects trace stateVar)
-        (healthcheck :<|> startWatching :<|> watchedAddresses :<|> confirmedBlocks :<|> WalletEffects.addressChanged)
+        (processIndexEffects trace stateVar)
+        (    healthcheck
+        :<|> startWatching
+        :<|> watchedAddresses
+        :<|> confirmedBlocks
+        :<|> WalletEffects.addressChanged
+        )
 
 main :: ChainIndexTrace -> ChainIndexConfig -> FilePath -> SlotConfig -> Availability -> IO ()
 main trace ChainIndexConfig{ciBaseUrl} socketPath slotConfig availability = runLogEffects trace $ do
@@ -64,5 +69,5 @@ main trace ChainIndexConfig{ciBaseUrl} socketPath slotConfig availability = runL
             servicePort = baseUrlPort (coerce ciBaseUrl)
             warpSettings = Warp.defaultSettings & Warp.setPort servicePort & Warp.setBeforeMainLoop isAvailable
             updateChainState :: MVar AppState -> Block -> Slot -> IO ()
-            updateChainState mv block slot =
+            updateChainState mv block slot = do
               processIndexEffects trace mv $ syncState block slot

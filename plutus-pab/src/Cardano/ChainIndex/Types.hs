@@ -28,7 +28,7 @@ import           Ledger.Address                 (Address)
 import           Wallet.Effects                 (ChainIndexEffect)
 import           Wallet.Emulator.ChainIndex     (ChainIndexControlEffect, ChainIndexEvent, ChainIndexState)
 
-
+-- TODO: Remove. Old chain index
 type ChainIndexEffects m
      = '[ ChainIndexControlEffect
         , ChainIndexEffect
@@ -40,6 +40,7 @@ type ChainIndexEffects m
 newtype ChainIndexUrl = ChainIndexUrl BaseUrl
     deriving (Eq, Show, FromJSON, ToJSON) via BaseUrl
 
+-- TODO: Remove. Old chain index.
 data AppState =
     AppState
         { _indexState  :: ChainIndexState
@@ -52,7 +53,7 @@ initialAppState = AppState mempty mempty
 data ChainIndexConfig =
     ChainIndexConfig
         { ciBaseUrl          :: ChainIndexUrl
-        , ciWatchedAddresses :: [Address]
+        , ciWatchedAddresses :: [Address] -- TODO: Remove. Used by old chain index
         }
     deriving stock (Show, Eq, Generic)
     deriving anyclass (FromJSON, ToJSON)
@@ -82,7 +83,7 @@ data ChainIndexServerMsg =
     | ReceivedBlocksTxns
         Int    -- ^ Blocks
         Int    -- ^ Transactions
-    | ChainEvent ChainIndexEvent
+    | ChainEvent ChainIndexEvent -- TODO: Remove. Used by old chain index
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 

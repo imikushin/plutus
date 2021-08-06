@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs            #-}
-{-# LANGUAGE LambdaCase       #-}
 {-# LANGUAGE RankNTypes       #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators    #-}
@@ -20,7 +19,6 @@ import           Ledger.AddressMap          (AddressMap)
 import           Ledger.Blockchain          (Block)
 import           Servant                    (NoContent, (:<|>) (..))
 import           Servant.Client             (ClientEnv, ClientError, ClientM, client, runClientM)
-
 import           Wallet.Effects             (AddressChangeRequest, AddressChangeResponse, ChainIndexEffect (..))
 
 healthCheck :: ClientM NoContent

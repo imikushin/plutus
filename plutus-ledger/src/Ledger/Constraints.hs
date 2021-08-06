@@ -11,7 +11,9 @@ module Ledger.Constraints(
     , mustMintValue
     , mustMintValueWithRedeemer
     , mustSpendAtLeast
+    , mustSpendPubKeyOutputOld
     , mustSpendPubKeyOutput
+    , mustSpendScriptOutputOld
     , mustSpendScriptOutput
     , mustValidateIn
     , mustBeSignedBy
@@ -28,21 +30,25 @@ module Ledger.Constraints(
     , MkTxError(..)
     , UnbalancedTx
     , typedValidatorLookups
+    , unspentOutputsOld
     , unspentOutputs
     , mintingPolicy
     , otherScript
     , otherData
     , ownPubKeyHash
+    , mkTxOld
     , mkTx
     , pubKey
     -- ** Combining multiple typed scripts into one transaction
     , SomeLookupsAndConstraints(..)
+    , mkSomeTxOld
     , mkSomeTx
     ) where
 
 import           Ledger.Constraints.OffChain      (MkTxError (..), ScriptLookups (..), SomeLookupsAndConstraints (..),
-                                                   UnbalancedTx, mintingPolicy, mkSomeTx, mkTx, otherData, otherScript,
-                                                   ownPubKeyHash, pubKey, typedValidatorLookups, unspentOutputs)
+                                                   UnbalancedTx, mintingPolicy, mkSomeTx, mkSomeTxOld, mkTx, mkTxOld,
+                                                   otherData, otherScript, ownPubKeyHash, pubKey, typedValidatorLookups,
+                                                   unspentOutputs, unspentOutputsOld)
 import           Ledger.Constraints.OnChain       (checkScriptContext)
 import           Ledger.Constraints.TxConstraints
 

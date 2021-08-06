@@ -231,6 +231,8 @@ instanceOutcome con =
     fmap (fromMaybe NotDone . fmap (fromResumableResult . instContractState)) . instanceState con
 
 -- | Unspent outputs at an address
+--
+-- TODO Adapt to use ChainIndexTx
 utxoAtAddress :: Address -> EmulatorEventFold UtxoMap
 utxoAtAddress addr =
     preMapMaybe (preview (eteEvent . chainEvent))
@@ -259,6 +261,8 @@ walletFees w = fees <$> walletSubmittedFees <*> validatedTransactions <*> failed
         walletSubmittedFees = L.handles (eteEvent . walletClientEvent w . _TxSubmit) L.map
 
 -- | Whether the wallet is watching an address
+--
+-- TODO: Delete. Uses the old chain index
 walletWatchingAddress :: Wallet -> Address -> EmulatorEventFold Bool
 walletWatchingAddress wllt addr =
     preMapMaybe (preview (eteEvent . chainIndexEvent wllt . _AddressStartWatching))

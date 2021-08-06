@@ -1,11 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs            #-}
-{-# LANGUAGE LambdaCase       #-}
-{-# LANGUAGE MonoLocalBinds   #-}
 {-# LANGUAGE NamedFieldPuns   #-}
 {-# LANGUAGE RankNTypes       #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators    #-}
 -- |
 module Plutus.PAB.Core.ContractInstance.BlockchainEnv(
   startNodeClient

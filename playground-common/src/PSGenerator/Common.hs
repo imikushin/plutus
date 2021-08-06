@@ -18,10 +18,10 @@ import           Language.PureScript.Bridge                (BridgePart, Language
 import           Language.PureScript.Bridge.Builder        (BridgeData)
 import           Language.PureScript.Bridge.PSTypes        (psArray, psInt, psNumber, psString)
 import           Language.PureScript.Bridge.TypeParameters (A)
-import           Ledger                                    (Address, BlockId, DatumHash, MintingPolicy, OnChainTx,
-                                                            PubKey, PubKeyHash, RedeemerPtr, ScriptTag, Signature,
-                                                            StakeValidator, Tx, TxId, TxIn, TxInType, TxOut, TxOutRef,
-                                                            TxOutTx, UtxoIndex, ValidationPhase, Validator)
+import           Ledger                                    (Address, BlockId, ChainIndexTxOut, DatumHash, MintingPolicy,
+                                                            OnChainTx, PubKey, PubKeyHash, RedeemerPtr, ScriptTag,
+                                                            Signature, StakeValidator, Tx, TxId, TxIn, TxInType, TxOut,
+                                                            TxOutRef, TxOutTx, UtxoIndex, ValidationPhase, Validator)
 import           Ledger.Ada                                (Ada)
 import           Ledger.Constraints.OffChain               (MkTxError, UnbalancedTx)
 import           Ledger.Credential                         (Credential, StakingCredential)
@@ -36,8 +36,10 @@ import           Ledger.TimeSlot                           (SlotConfig, SlotConv
 import           Ledger.Typed.Tx                           (ConnectionError, WrongOutTypeError)
 import           Ledger.Value                              (AssetClass, CurrencySymbol, TokenName, Value)
 import           Playground.Types                          (ContractCall, FunctionSchema, KnownCurrency)
+import           Plutus.ChainIndex.Emulator.Handlers       (ChainIndexError, ChainIndexLog)
 import           Plutus.ChainIndex.Tx                      (ChainIndexTx)
 import           Plutus.ChainIndex.Types                   (Page, PageSize, Tip)
+import           Plutus.ChainIndex.UtxoState               (InsertUtxoFailed, InsertUtxoPosition, RollbackFailed)
 import           Plutus.Contract.Checkpoint                (CheckpointError)
 import           Plutus.Contract.Effects                   (ActiveEndpoint, BalanceTxResponse, ChainIndexQuery,
                                                             ChainIndexResponse, Depth, PABReq, PABResp, TxStatus,
@@ -363,6 +365,12 @@ ledgerTypes =
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @ChainIndexQuery)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @ChainIndexResponse)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @ChainIndexTx)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @ChainIndexTxOut)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @ChainIndexLog)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @ChainIndexError)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @InsertUtxoPosition)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @InsertUtxoFailed)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @RollbackFailed)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @(Page A))
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @Tip)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @PageSize)
