@@ -279,6 +279,7 @@
           "PlutusIR/Transform/DeadCode"
           "PlutusIR/Transform/Inline"
           "PlutusIR/Transform/LetFloat"
+          "PlutusIR/Transform/NewLetFloat"
           "PlutusIR/Transform/LetMerge"
           "PlutusIR/Transform/RecSplit"
           "PlutusIR/Transform/NonStrict"
