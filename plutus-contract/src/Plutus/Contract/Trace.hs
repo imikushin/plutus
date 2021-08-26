@@ -32,10 +32,8 @@ module Plutus.Contract.Trace
     , handleCurrentTimeQueries
     , handleTimeToSlotConversions
     , handleUnbalancedTransactions
-    , handlePendingTransactionsOld
+    , handlePendingTransactions
     , handleChainIndexQueries
-    , handleUtxoQueriesOld
-    , handleAddressChangedAtQueriesOld
     , handleOwnInstanceIdQueries
     -- * Initial distributions of emulated chains
     , InitialDistribution
@@ -70,7 +68,6 @@ import           Ledger.Value                         (Value)
 
 import           Plutus.ChainIndex                    (ChainIndexQueryEffect)
 import           Plutus.Trace.Emulator.Types          (EmulatedWalletEffects)
-import           Wallet.API                           (ChainIndexEffect)
 import           Wallet.Effects                       (NodeClientEffect, WalletEffect)
 import           Wallet.Emulator                      (Wallet)
 import qualified Wallet.Emulator                      as EM
@@ -150,11 +147,9 @@ handleBlockchainQueries ::
         PABResp
 handleBlockchainQueries =
     handleUnbalancedTransactions
-    <> handlePendingTransactionsOld
+    <> handlePendingTransactions
     <> handleChainIndexQueries
-    <> handleUtxoQueriesOld
     <> handleOwnPubKeyQueries
-    <> handleAddressChangedAtQueriesOld
     <> handleOwnInstanceIdQueries
     <> handleSlotNotifications
     <> handleCurrentSlotQueries
@@ -174,34 +169,18 @@ handleUnbalancedTransactions =
         (E.BalanceTxResp . either E.BalanceTxFailed E.BalanceTxSuccess)
         RequestHandler.handleUnbalancedTransactions
 
--- | TODO: To delete. Uses the old chain index.
--- | Submit the wallet's pending transactions to the blockchain
---   and inform all wallets about new transactions and respond to
---   UTXO queries
-handlePendingTransactionsOld ::
+-- | Submit the wallet's pending transactions to the blockchain.
+handlePendingTransactions ::
     ( Member (LogObserve (LogMessage Text)) effs
     , Member (LogMsg RequestHandlerLogMsg) effs
     , Member WalletEffect effs
-    , Member ChainIndexEffect effs
     )
     => RequestHandler effs PABReq PABResp
-handlePendingTransactionsOld =
+handlePendingTransactions =
     generalise
         (preview E._WriteBalancedTxReq)
         (E.WriteBalancedTxResp . either E.WriteBalancedTxFailed E.WriteBalancedTxSuccess)
-        RequestHandler.handlePendingTransactionsOld
-
--- | TODO: To delete. Uses the old chain index.
--- | Look at the "utxo-at" requests of the contract and respond to all of them
---   with the current UTXO set at the given address.
-handleUtxoQueriesOld ::
-    ( Member (LogObserve (LogMessage Text)) effs
-    , Member (LogMsg RequestHandlerLogMsg) effs
-    , Member ChainIndexEffect effs
-    )
-    => RequestHandler effs PABReq PABResp
-handleUtxoQueriesOld =
-    generalise (preview E._UtxoAtReq) E.UtxoAtResp RequestHandler.handleUtxoQueriesOld
+        RequestHandler.handlePendingTransactions
 
 handleChainIndexQueries ::
     ( Member (LogObserve (LogMessage Text)) effs
@@ -212,17 +191,6 @@ handleChainIndexQueries =
     generalise (preview E._ChainIndexQueryReq)
                E.ChainIndexQueryResp
                RequestHandler.handleChainIndexQueries
-
--- | TODO: To delete. Uses the old chain index.
-handleAddressChangedAtQueriesOld ::
-    ( Member (LogObserve (LogMessage Text)) effs
-    , Member (LogMsg RequestHandlerLogMsg) effs
-    , Member ChainIndexEffect effs
-    , Member NodeClientEffect effs
-    )
-    => RequestHandler effs PABReq PABResp
-handleAddressChangedAtQueriesOld =
-    generalise (preview E._AddressChangeReq) E.AddressChangeResp RequestHandler.handleAddressChangedAtQueriesOld
 
 handleOwnPubKeyQueries ::
     ( Member (LogObserve (LogMessage Text)) effs

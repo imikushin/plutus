@@ -50,9 +50,10 @@ import qualified Data.Map                             as Map
 import           Data.Maybe                           (listToMaybe, mapMaybe)
 import qualified Data.Set                             as Set
 import qualified Data.Text                            as T
-import           Ledger.Blockchain                    (OnChainTx (..), consumableInputs, outputsProduced)
+import           Ledger.Blockchain                    (OnChainTx (..))
 import           Ledger.Tx                            (Address, TxIn (..), TxOut (..), TxOutRef, txId)
-import qualified Plutus.ChainIndex                    as ChainIndex
+import           Plutus.ChainIndex                    (ChainIndexQueryEffect, ChainIndexTx, citxInputs, citxOutputs,
+                                                       fromOnChainTx)
 import           Plutus.Contract                      (Contract (..))
 import           Plutus.Contract.Effects              (PABReq, PABResp (AwaitTxStatusChangeResp), TxValidity (..),
                                                        matches)
@@ -73,7 +74,7 @@ import           Plutus.Trace.Emulator.Types          (ContractConstraints, Cont
                                                        toInstanceState)
 import           Plutus.Trace.Scheduler               (MessageCall (..), Priority (..), ThreadId, mkAgentSysCall)
 import qualified Wallet.API                           as WAPI
-import           Wallet.Effects                       (ChainIndexEffect, NodeClientEffect, WalletEffect)
+import           Wallet.Effects                       (NodeClientEffect, WalletEffect)
 import           Wallet.Emulator.LogMessages          (TxBalanceMsg)
 import           Wallet.Types                         (ContractInstanceId)
 
@@ -264,7 +265,7 @@ processNewTransactions ::
 processNewTransactions txns = do
     updateTxStatus @w @s @e txns
 
-    let blck = indexBlock txns
+    let blck = indexBlock $ fmap fromOnChainTx txns
     updateTxOutSpent @w @s @e blck
     updateTxOutProduced @w @s @e blck
 
@@ -394,8 +395,7 @@ respondToRequest isLogShowed f = do
                     $ subsume @(LogMsg TxBalanceMsg)
                     $ subsume @(LogMsg RequestHandlerLogMsg)
                     $ subsume @(LogObserve (LogMessage T.Text))
-                    $ subsume @ChainIndex.ChainIndexQueryEffect
-                    $ subsume @ChainIndexEffect -- TODO: Delete when new chain index is full integrated
+                    $ subsume @ChainIndexQueryEffect
                     $ subsume @NodeClientEffect
                     $ subsume @(Error WAPI.WalletAPIError)
                     $ subsume @WalletEffect
@@ -446,8 +446,8 @@ logNewMessages = do
 --   addresses on which new outputs are produced
 data IndexedBlock =
   IndexedBlock
-    { ibUtxoSpent    :: Map TxOutRef OnChainTx
-    , ibUtxoProduced :: Map Address (NonEmpty OnChainTx)
+    { ibUtxoSpent    :: Map TxOutRef ChainIndexTx
+    , ibUtxoProduced :: Map Address (NonEmpty ChainIndexTx)
     }
 
 instance Semigroup IndexedBlock where
@@ -460,10 +460,10 @@ instance Semigroup IndexedBlock where
 instance Monoid IndexedBlock where
   mempty = IndexedBlock mempty mempty
 
-indexBlock :: [OnChainTx] -> IndexedBlock
+indexBlock :: [ChainIndexTx] -> IndexedBlock
 indexBlock = foldMap indexTx where
   indexTx otx =
     IndexedBlock
-      { ibUtxoSpent = Map.fromSet (const otx) $ Set.map txInRef $ consumableInputs otx
-      , ibUtxoProduced = Map.fromListWith (<>) $ outputsProduced otx >>= (\TxOut{txOutAddress} -> [(txOutAddress, otx :| [])])
+      { ibUtxoSpent = Map.fromSet (const otx) $ Set.map txInRef $ view citxInputs otx
+      , ibUtxoProduced = Map.fromListWith (<>) $ view citxOutputs otx >>= (\TxOut{txOutAddress} -> [(txOutAddress, otx :| [])])
       }

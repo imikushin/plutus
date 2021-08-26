@@ -17,9 +17,7 @@ module Plutus.Contract.Effects( -- TODO: Move to Requests.Internal
     _AwaitTxStatusChangeReq,
     _OwnContractInstanceIdReq,
     _OwnPublicKeyReq,
-    _UtxoAtReq,
     _ChainIndexQueryReq,
-    _AddressChangeReq,
     _BalanceTxReq,
     _WriteBalancedTxReq,
     _ExposeEndpointReq,
@@ -45,9 +43,7 @@ module Plutus.Contract.Effects( -- TODO: Move to Requests.Internal
     _AwaitTxStatusChangeResp',
     _OwnContractInstanceIdResp,
     _OwnPublicKeyResp,
-    _UtxoAtResp,
     _ChainIndexQueryResp,
-    _AddressChangeResp,
     _BalanceTxResp,
     _WriteBalancedTxResp,
     _ExposeEndpointResp,
@@ -61,12 +57,10 @@ module Plutus.Contract.Effects( -- TODO: Move to Requests.Internal
     _UtxoSetMembershipResponse,
     _UtxoSetAtResponse,
     _GetTipResponse,
-
     -- * Etc.
     matches,
     ChainIndexQuery(..),
     ChainIndexResponse(..),
-    UtxoAtAddress(..),
     BalanceTxResponse(..),
     balanceTxResponse,
     WriteBalancedTxResponse(..),
@@ -84,14 +78,12 @@ import           Control.Lens                     (Iso', Prism', iso, makePrisms
 import           Data.Aeson                       (FromJSON, ToJSON)
 import qualified Data.Aeson                       as JSON
 import           Data.List.NonEmpty               (NonEmpty)
-import qualified Data.Map                         as Map
-import           Data.Text.Prettyprint.Doc        (Pretty (..), colon, hsep, indent, viaShow, vsep, (<+>))
+import           Data.Text.Prettyprint.Doc        (Pretty (..), hsep, indent, viaShow, vsep, (<+>))
 import           Data.Text.Prettyprint.Doc.Extras (PrettyShow (..))
 import           GHC.Generics                     (Generic)
 import           Ledger                           (Address, Datum, DatumHash, MintingPolicy, MintingPolicyHash,
                                                    OnChainTx, PubKey, StakeValidator, StakeValidatorHash, Tx, TxId,
-                                                   TxOutRef, TxOutTx (..), ValidatorHash, eitherTx, txId)
-import           Ledger.AddressMap                (UtxoMap)
+                                                   TxOutRef, ValidatorHash, eitherTx, txId)
 import           Ledger.Constraints.OffChain      (UnbalancedTx)
 import           Ledger.Credential                (Credential)
 import           Ledger.Scripts                   (Validator)
@@ -104,8 +96,7 @@ import           Plutus.ChainIndex.Tx             (ChainIndexTx (_citxTxId))
 import           Plutus.ChainIndex.Types          (Page (pageItems))
 import           PlutusTx.Lattice                 (MeetSemiLattice (..))
 import           Wallet.API                       (WalletAPIError)
-import           Wallet.Types                     (AddressChangeRequest, AddressChangeResponse, ContractInstanceId,
-                                                   EndpointDescription, EndpointValue)
+import           Wallet.Types                     (ContractInstanceId, EndpointDescription, EndpointValue)
 
 -- | Requests that 'Contract's can make
 data PABReq =
@@ -118,9 +109,7 @@ data PABReq =
     | CurrentTimeReq
     | OwnContractInstanceIdReq
     | OwnPublicKeyReq
-    | UtxoAtReq Address -- TODO Remove, uses old chain index
     | ChainIndexQueryReq ChainIndexQuery
-    | AddressChangeReq AddressChangeRequest -- TODO Remove, uses old chain index
     | BalanceTxReq UnbalancedTx
     | WriteBalancedTxReq Tx
     | ExposeEndpointReq ActiveEndpoint
@@ -139,9 +128,7 @@ instance Pretty PABReq where
     AwaitTxStatusChangeReq txid             -> "Await tx status change:" <+> pretty txid
     OwnContractInstanceIdReq                -> "Own contract instance ID"
     OwnPublicKeyReq                         -> "Own public key"
-    UtxoAtReq addr                          -> "Utxo at:" <+> pretty addr
     ChainIndexQueryReq q                    -> "Chain index query:" <+> pretty q
-    AddressChangeReq req                    -> "Address change:" <+> pretty req
     BalanceTxReq utx                        -> "Balance tx:" <+> pretty utx
     WriteBalancedTxReq tx                   -> "Write balanced tx:" <+> pretty tx
     ExposeEndpointReq ep                    -> "Expose endpoint:" <+> pretty ep
@@ -151,16 +138,14 @@ instance Pretty PABReq where
 data PABResp =
     AwaitSlotResp Slot
     | AwaitTimeResp POSIXTime
-    | AwaitUtxoSpentResp OnChainTx -- TODO Change so that it returns ChainIndexTx instead. Implies changing the emulator.
-    | AwaitUtxoProducedResp (NonEmpty OnChainTx) -- TODO Change so that it returns ChainIndexTx instead. Implies changing the emulator.
+    | AwaitUtxoSpentResp ChainIndexTx
+    | AwaitUtxoProducedResp (NonEmpty ChainIndexTx)
     | AwaitTxStatusChangeResp TxId TxStatus
     | CurrentSlotResp Slot
     | CurrentTimeResp POSIXTime
     | OwnContractInstanceIdResp ContractInstanceId
     | OwnPublicKeyResp PubKey
-    | UtxoAtResp UtxoAtAddress
     | ChainIndexQueryResp ChainIndexResponse
-    | AddressChangeResp AddressChangeResponse
     | BalanceTxResp BalanceTxResponse
     | WriteBalancedTxResp WriteBalancedTxResponse
     | ExposeEndpointResp EndpointDescription (EndpointValue JSON.Value)
@@ -179,9 +164,7 @@ instance Pretty PABResp where
     AwaitTxStatusChangeResp txid status      -> "Status of" <+> pretty txid <+> "changed to" <+> pretty status
     OwnContractInstanceIdResp i              -> "Own contract instance ID:" <+> pretty i
     OwnPublicKeyResp k                       -> "Own public key:" <+> pretty k
-    UtxoAtResp rsp                           -> "Utxo at:" <+> pretty rsp
     ChainIndexQueryResp rsp                  -> pretty rsp
-    AddressChangeResp rsp                    -> "Address change:" <+> pretty rsp
     BalanceTxResp r                          -> "Balance tx:" <+> pretty r
     WriteBalancedTxResp r                    -> "Write balanced tx:" <+> pretty r
     ExposeEndpointResp desc rsp              -> "Call endpoint" <+> pretty desc <+> "with" <+> pretty rsp
@@ -198,9 +181,7 @@ matches a b = case (a, b) of
   (AwaitTxStatusChangeReq i, AwaitTxStatusChangeResp i' _) -> i == i'
   (OwnContractInstanceIdReq, OwnContractInstanceIdResp{})  -> True
   (OwnPublicKeyReq, OwnPublicKeyResp{})                    -> True
-  (UtxoAtReq{}, UtxoAtResp{})                              -> True
   (ChainIndexQueryReq r, ChainIndexQueryResp r')           -> chainIndexMatches r r'
-  (AddressChangeReq{}, AddressChangeResp{})                -> True
   (BalanceTxReq{}, BalanceTxResp{})                        -> True
   (WriteBalancedTxReq{}, WriteBalancedTxResp{})            -> True
   (ExposeEndpointReq ActiveEndpoint{aeDescription}, ExposeEndpointResp desc _)
@@ -285,22 +266,6 @@ instance Pretty ChainIndexResponse where
             <+> "and utxo refs are"
             <+> hsep (fmap pretty $ pageItems txOutRefPage)
         GetTipResponse tip -> "Chain index get tip response:" <+> pretty tip
-
-data UtxoAtAddress =
-    UtxoAtAddress
-        { address :: Address
-        , utxo    :: UtxoMap
-        }
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
-
-instance Pretty UtxoAtAddress where
-  pretty UtxoAtAddress{address, utxo} =
-    let
-      prettyTxOutPair (txoutref, TxOutTx{txOutTxOut}) =
-        pretty txoutref <> colon <+> pretty txOutTxOut
-      utxos = vsep $ fmap prettyTxOutPair (Map.toList utxo)
-    in vsep ["Utxo at" <+> pretty address <+> "=", indent 2 utxos]
 
 -- | Validity of a transaction that has been added to the ledger
 data TxValidity = TxValid | TxInvalid | UnknownValidity

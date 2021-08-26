@@ -31,7 +31,6 @@ import           Ledger.Scripts
 import           Ledger.Tx
 import           Ledger.Typed.Scripts
 import           Plutus.V1.Ledger.Crypto
-import           Plutus.V1.Ledger.TxId
 import qualified Plutus.V1.Ledger.Value    as Value
 
 import           PlutusTx
@@ -160,7 +159,6 @@ data ConnectionError =
     | WrongValidatorType String
     | WrongRedeemerType BuiltinData
     | WrongDatumType BuiltinData
-    | NoDatumOld TxId DatumHash -- ^ TODO: To delete. Uses the old chain index.
     | NoDatum TxOutRef DatumHash
     | UnknownRef
     deriving stock (Show, Eq, Ord, Generic)
@@ -181,7 +179,6 @@ instance Pretty ConnectionError where
         WrongValidatorType t        -> "Wrong validator type:" <+> pretty t
         WrongRedeemerType d         -> "Wrong redeemer type" <+> pretty (builtinDataToData d)
         WrongDatumType d            -> "Wrong datum type" <+> pretty (builtinDataToData d)
-        NoDatumOld t d              -> "No datum with hash " <+> pretty d <+> "for tx" <+> pretty t
         NoDatum t d                 -> "No datum with hash " <+> pretty d <+> "for tx output" <+> pretty t
         UnknownRef                  -> "Unknown reference"
 
@@ -213,32 +210,6 @@ checkDatum _ (Datum d) =
     case fromBuiltinData d of
         Just v  -> pure v
         Nothing -> throwError $ WrongDatumType d
-
--- | Create a 'TypedScriptTxIn' from an existing 'TxIn' by checking the types of its parts.
---
--- | TODO: To delete. Uses the old chain index.
-typeScriptTxInOld
-    :: forall inn m
-    . ( FromData (RedeemerType inn)
-      , ToData (RedeemerType inn)
-      , FromData (DatumType inn)
-      , ToData (DatumType inn)
-      , MonadError ConnectionError m)
-    => (TxOutRef -> Maybe TxOutTx)
-    -> TypedValidator inn
-    -> TxIn
-    -> m (TypedScriptTxIn inn)
-typeScriptTxInOld lookupRef si TxIn{txInRef,txInType} = do
-    (rs, ds) <- case txInType of
-        Just (ConsumeScriptAddress _ rs ds) -> pure (rs, ds)
-        Just x                              -> throwError $ WrongInType x
-        Nothing                             -> throwError MissingInType
-    -- It would be nice to typecheck the validator script here (we used to do that when we
-    -- had typed on-chain code), but we can't do that with untyped code!
-    rsVal <- checkRedeemer si rs
-    _ <- checkDatum si ds
-    typedOut <- typeScriptTxOutRefOld @inn lookupRef si txInRef
-    pure $ makeTypedScriptTxIn si rsVal typedOut
 
 -- | Create a 'TypedScriptTxIn' from an existing 'TxIn' by checking the types of its parts.
 typeScriptTxIn
@@ -279,28 +250,6 @@ typePubKeyTxIn inn@TxIn{txInType} = do
     pure $ PubKeyTxIn inn
 
 -- | Create a 'TypedScriptTxOut' from an existing 'TxOut' by checking the types of its parts.
---
--- | TODO: To delete. Uses the old chain index.
-typeScriptTxOutOld
-    :: forall out m
-    . ( FromData (DatumType out)
-      , ToData (DatumType out)
-      , MonadError ConnectionError m)
-    => TypedValidator out
-    -> TxOutTx
-    -> m (TypedScriptTxOut out)
-typeScriptTxOutOld si TxOutTx{txOutTxTx=tx, txOutTxOut=TxOut{txOutAddress,txOutValue,txOutDatumHash}} = do
-    dsh <- case txOutDatumHash of
-        Just ds -> pure ds
-        _       -> throwError $ WrongOutType ExpectedScriptGotPubkey
-    ds <- case lookupDatum tx dsh of
-        Just ds -> pure ds
-        Nothing -> throwError $ NoDatumOld (txId tx) dsh -- Use txOutRef as error message
-    checkValidatorAddress si txOutAddress
-    dsVal <- checkDatum si ds
-    pure $ makeTypedScriptTxOut si dsVal txOutValue
-
--- | Create a 'TypedScriptTxOut' from an existing 'TxOut' by checking the types of its parts.
 typeScriptTxOut
     :: forall out m
     . ( FromData (DatumType out)
@@ -321,27 +270,6 @@ typeScriptTxOut si ref txout = do
     checkValidatorAddress si addr
     dsVal <- checkDatum si ds
     pure $ makeTypedScriptTxOut si dsVal outVal
-
--- | Create a 'TypedScriptTxOut' from an existing 'TxOut' by checking the types of its parts. To do this we
--- need to cross-reference against the validator script and be able to look up the 'TxOut' to which this
--- reference points.
---
--- | TODO: To delete. Uses the old chain index.
-typeScriptTxOutRefOld
-    :: forall out m
-    . ( FromData (DatumType out)
-      , ToData (DatumType out)
-      , MonadError ConnectionError m)
-    => (TxOutRef -> Maybe TxOutTx)
-    -> TypedValidator out
-    -> TxOutRef
-    -> m (TypedScriptTxOutRef out)
-typeScriptTxOutRefOld lookupRef ct ref = do
-    out <- case lookupRef ref of
-        Just res -> pure res
-        Nothing  -> throwError UnknownRef
-    tyOut <- typeScriptTxOutOld @out ct out
-    pure $ TypedScriptTxOutRef ref tyOut
 
 -- | Create a 'TypedScriptTxOut' from an existing 'TxOut' by checking the types of its parts. To do this we
 -- need to cross-reference against the validator script and be able to look up the 'TxOut' to which this

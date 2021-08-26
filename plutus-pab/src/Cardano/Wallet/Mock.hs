@@ -9,8 +9,7 @@
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
 
 module Cardano.Wallet.Mock
-    ( processWalletEffectsOld
-    , processWalletEffects
+    ( processWalletEffects
     , integer2ByteString32
     , byteString2Integer
     , newKeyPair
@@ -20,11 +19,10 @@ module Cardano.Wallet.Mock
     ) where
 
 import           Cardano.BM.Data.Trace               (Trace)
-import qualified Cardano.ChainIndex.Client           as ChainIndexClient
 import qualified Cardano.Node.Client                 as NodeClient
 import qualified Cardano.Protocol.Socket.Mock.Client as MockClient
-import           Cardano.Wallet.Types                (MultiWalletEffect (..), WalletEffects, WalletEffectsOld,
-                                                      WalletInfo (..), WalletMsg (..), Wallets)
+import           Cardano.Wallet.Types                (MultiWalletEffect (..), WalletEffects, WalletInfo (..),
+                                                      WalletMsg (..), Wallets)
 import           Control.Concurrent                  (MVar)
 import           Control.Concurrent.MVar             (putMVar, takeMVar)
 import           Control.Lens                        (at, (?~))
@@ -51,7 +49,6 @@ import qualified Data.Map                            as Map
 import           Data.Text.Encoding                  (encodeUtf8)
 import           Data.Text.Prettyprint.Doc           (pretty)
 import qualified Ledger.Ada                          as Ada
-import           Ledger.Address                      (pubKeyAddress)
 import           Ledger.Crypto                       (PrivateKey (..), PubKeyHash (..), privateKey2, pubKeyHash,
                                                       toPublicKey)
 import           Ledger.Fee                          (FeeConfig)
@@ -68,8 +65,7 @@ import           Servant.Client                      (ClientEnv)
 import           Servant.Server                      (err500)
 import           Wallet.API                          (PubKey, WalletAPIError (..))
 import qualified Wallet.API                          as WAPI
-import           Wallet.Effects                      (ChainIndexEffect, NodeClientEffect)
-import qualified Wallet.Effects                      as WalletEffects
+import           Wallet.Effects                      (NodeClientEffect)
 import           Wallet.Emulator.LogMessages         (TxBalanceMsg)
 import           Wallet.Emulator.NodeClient          (emptyNodeClientState)
 import           Wallet.Emulator.Wallet              (Wallet (..), WalletState (..), defaultSigningProcess)
@@ -82,16 +78,15 @@ generateSeed = do
     (bytes :: ScrubbedBytes) <- sendM $ liftIO $ getRandomBytes secretKeySize
     pure $ Seed bytes
 
+{-# INLINE byteString2Integer #-}
 -- |Helper function to convert bytestrings to integers
 byteString2Integer :: BS.ByteString -> Integer
 byteString2Integer = BS.foldl' (\i b -> (i `shiftL` 8) + fromIntegral b) 0
-{-# INLINE byteString2Integer #-}
 
-
+{-# INLINE integer2ByteString32 #-}
 -- |@i2bs bitLen i@ converts @i@ to a 'ByteString' of @bitLen@ bits (must be a multiple of 8).
 integer2ByteString32 :: Integer -> BS.ByteString
 integer2ByteString32 i = BS.unfoldr (\l' -> if l' < 0 then Nothing else Just (fromIntegral (i `shiftR` l'), l' - 8)) (31*8)
-{-# INLINE integer2ByteString32 #-}
 
 distributeNewWalletFunds :: forall effs. (Member WAPI.WalletEffect effs, Member (Error WalletAPIError) effs) => PubKey -> Eff effs Tx
 distributeNewWalletFunds = WAPI.payToPublicKey WAPI.defaultSlotRange (Ada.adaValueOf 10000)
@@ -122,51 +117,6 @@ pubKeyHashWallet :: PubKeyHash -> Wallet
 pubKeyHashWallet (PubKeyHash kb) =
 --   TODO (jm): this is terrible and we need to change it - see SCP-2208
     Wallet $ byteString2Integer $ PlutusTx.fromBuiltin kb
-
--- | Handle multiple wallets using existing @Wallet.handleWallet@ handler
---
--- TODO: Remove. Uses the old chain index
-handleMultiWalletOld :: forall m effs.
-    ( Member NodeClientEffect effs
-    , Member ChainIndexEffect effs
-    , Member (State Wallets) effs
-    , Member (Error WAPI.WalletAPIError) effs
-    , Member (LogMsg WalletMsg) effs
-    , LastMember m effs
-    , MonadIO m
-    )
-    => FeeConfig
-    -> MultiWalletEffect ~> Eff effs
-handleMultiWalletOld feeCfg = \case
-    MultiWallet wallet action -> do
-        wallets <- get @Wallets
-        case Map.lookup wallet wallets of
-            Just walletState -> do
-                (x, newState) <- runState walletState
-                    $ action
-                        & raiseEnd
-                        & interpret (Wallet.handleWalletOld feeCfg)
-                        & interpret (mapLog @TxBalanceMsg @WalletMsg Balancing)
-                put @Wallets (wallets & at wallet ?~ newState)
-                pure x
-            Nothing -> throwError $ WAPI.OtherError "Wallet not found"
-    CreateWallet -> do
-        wallets <- get @Wallets
-        (pubKey, privateKey) <- newKeyPair
-        let wallet = pubKeyHashWallet $ pubKeyHash pubKey
-            newState = Wallet.emptyWalletStateFromPrivateKey privateKey
-        let wallets' = Map.insert wallet newState wallets
-        put wallets'
-        -- For some reason this doesn't work with (Wallet 1)/privateKey1,
-        -- works just fine with (Wallet 2)/privateKey2
-        -- ¯\_(ツ)_/¯
-        let walletState = WalletState privateKey2 emptyNodeClientState mempty mempty (defaultSigningProcess (Wallet 2))
-        _ <- evalState walletState $
-            interpret (mapLog @TxBalanceMsg @WalletMsg Balancing)
-            $ interpret (Wallet.handleWalletOld feeCfg)
-            $ distributeNewWalletFunds pubKey
-        WalletEffects.startWatching (pubKeyAddress pubKey)
-        return $ WalletInfo{wiWallet = wallet, wiPubKey = pubKey, wiPubKeyHash = pubKeyHash pubKey}
 
 -- | Handle multiple wallets using existing @Wallet.handleWallet@ handler
 handleMultiWallet :: forall m effs.
@@ -203,45 +153,12 @@ handleMultiWallet feeCfg = \case
         -- For some reason this doesn't work with (Wallet 1)/privateKey1,
         -- works just fine with (Wallet 2)/privateKey2
         -- ¯\_(ツ)_/¯
-        let walletState = WalletState privateKey2 emptyNodeClientState mempty mempty (defaultSigningProcess (Wallet 2))
+        let walletState = WalletState privateKey2 emptyNodeClientState mempty (defaultSigningProcess (Wallet 2))
         _ <- evalState walletState $
             interpret (mapLog @TxBalanceMsg @WalletMsg Balancing)
             $ interpret (Wallet.handleWallet feeCfg)
             $ distributeNewWalletFunds pubKey
         return $ WalletInfo{wiWallet = wallet, wiPubKey = pubKey, wiPubKeyHash = pubKeyHash pubKey}
-
--- | Process wallet effects. Retain state and yield HTTP400 on error
---   or set new state on success.
---
--- TODO Remove. Use old chain index
-processWalletEffectsOld ::
-    (MonadIO m, MonadError ServerError m)
-    => Trace IO WalletMsg -- ^ trace for logging
-    -> MockClient.TxSendHandle -- ^ node client
-    -> NodeClient.ChainSyncHandle -- ^ node client
-    -> ClientEnv          -- ^ chain index client
-    -> MVar Wallets   -- ^ wallets state
-    -> FeeConfig
-    -> SlotConfig
-    -> Eff (WalletEffectsOld IO) a -- ^ wallet effect
-    -> m a
-processWalletEffectsOld trace txSendHandle chainSyncHandle chainIndexEnv mVarState feeCfg slotCfg action = do
-    oldState <- liftIO $ takeMVar mVarState
-    result <- liftIO $ runWalletEffectsOld trace
-                                        txSendHandle
-                                        chainSyncHandle
-                                        chainIndexEnv
-                                        oldState
-                                        feeCfg
-                                        slotCfg
-                                        action
-    case result of
-        Left e -> do
-            liftIO $ putMVar mVarState oldState
-            MonadError.throwError $ err400 { errBody = Char8.pack (show e) }
-        Right (result_, newState) -> do
-            liftIO $ putMVar mVarState newState
-            pure result_
 
 -- | Process wallet effects. Retain state and yield HTTP400 on error
 --   or set new state on success.
@@ -273,38 +190,6 @@ processWalletEffects trace txSendHandle chainSyncHandle chainIndexEnv mVarState 
         Right (result_, newState) -> do
             liftIO $ putMVar mVarState newState
             pure result_
-
--- | Interpret wallet effects
---
--- TODO Remove. Use old chain index
-runWalletEffectsOld ::
-    Trace IO WalletMsg -- ^ trace for logging
-    -> MockClient.TxSendHandle -- ^ node client
-    -> NodeClient.ChainSyncHandle -- ^ node client
-    -> ClientEnv -- ^ chain index client
-    -> Wallets -- ^ current state
-    -> FeeConfig
-    -> SlotConfig
-    -> Eff (WalletEffectsOld IO) a -- ^ wallet effect
-    -> IO (Either ServerError (a, Wallets))
-runWalletEffectsOld trace txSendHandle chainSyncHandle chainIndexEnv wallets feeCfg slotCfg action =
-    reinterpret (handleMultiWalletOld feeCfg) action
-    & interpret (LM.handleLogMsgTrace trace)
-    & reinterpret2 (NodeClient.handleNodeClientClient slotCfg)
-    & runReader chainSyncHandle
-    & runReader txSendHandle
-    & reinterpret ChainIndexClient.handleChainIndexClient
-    & runReader chainIndexEnv
-    & runState wallets
-    & interpret (LM.handleLogMsgTrace (toWalletMsg trace))
-    & handleWalletApiErrors
-    & handleClientErrors
-    & runError
-    & runM
-        where
-            handleWalletApiErrors = flip handleError (throwError . fromWalletAPIError)
-            handleClientErrors = flip handleError (\e -> throwError $ err500 { errBody = Char8.pack (show e) })
-            toWalletMsg = LM.convertLog ChainClientMsg
 
 -- | Interpret wallet effects
 runWalletEffects ::

@@ -21,7 +21,6 @@ module Plutus.Contracts.Currency(
     , curPolicy
     -- * Actions etc
     , mintContract
-    , mintContractOld
     , mintedValue
     , currencySymbol
     -- * Simple minting policy currency
@@ -33,7 +32,7 @@ import           Control.Lens
 import           PlutusTx.Prelude       hiding (Monoid (..), Semigroup (..))
 
 import           Plutus.Contract        as Contract
-import           Plutus.Contract.Wallet (getUnspentOutput, getUnspentOutputOld)
+import           Plutus.Contract.Wallet (getUnspentOutput)
 
 import           Ledger                 (CurrencySymbol, PubKeyHash, TxId, TxOutRef (..), pubKeyHash, pubKeyHashAddress,
                                          scriptCurrencySymbol, txId)
@@ -164,33 +163,6 @@ mintContract pk amounts = mapError (review _CurrencyError) $ do
         mintTx      = Constraints.mustSpendPubKeyOutput txOutRef
                         <> Constraints.mustMintValue (mintedValue theCurrency)
     tx <- submitTxConstraintsWith @Scripts.Any lookups mintTx
-    _ <- awaitTxConfirmed (txId tx)
-    pure theCurrency
-
--- | @mint [(n1, c1), ..., (n_k, c_k)]@ creates a new currency with
---   @k@ token names, minting @c_i@ units of each token @n_i@.
---   If @k == 0@ then no value is minted. A one-shot minting policy
---   script is used to ensure that no more units of the currency can
---   be minted afterwards.
---
--- TODO Remove, uses old chain index
-mintContractOld
-    :: forall w s e.
-    ( AsCurrencyError e
-    )
-    => PubKeyHash
-    -> [(TokenName, Integer)]
-    -> Contract w s e OneShotCurrency
-mintContractOld pk amounts = mapError (review _CurrencyError) $ do
-    txOutRef <- getUnspentOutputOld
-    utxos <- utxoAtOld (pubKeyHashAddress pk)
-    let theCurrency = mkCurrency txOutRef amounts
-        curVali     = curPolicy theCurrency
-        lookups     = Constraints.mintingPolicy curVali
-                        <> Constraints.unspentOutputsOld utxos
-        mintTx      = Constraints.mustSpendPubKeyOutputOld txOutRef
-                        <> Constraints.mustMintValue (mintedValue theCurrency)
-    tx <- submitTxConstraintsWithOld @Scripts.Any lookups mintTx
     _ <- awaitTxConfirmed (txId tx)
     pure theCurrency
 

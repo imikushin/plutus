@@ -94,11 +94,8 @@ module Plutus.Contract.Test.ContractModel
     , ContractInstanceSpec(..)
     , HandleFun
     -- ** Emulator properties
-    , propRunActionsOld_
     , propRunActions_
-    , propRunActionsOld
     , propRunActions
-    , propRunActionsWithOptionsOld
     , propRunActionsWithOptions
     -- ** DL properties
     , forAllDL
@@ -922,20 +919,6 @@ instance GetModelState (DL state) where
 -- actions using `arbitraryAction`, or you can use `forAllDL` to generate a `Actions` from a `DL`
 -- scenario.
 
--- | TODO: To delete. Uses the old chain index.
-finalChecksOld :: CheckOptions -> TracePredicate -> PropertyM (ContractMonad state) a -> PropertyM (ContractMonad state) a
-finalChecksOld opts predicate prop = do
-    x  <- prop
-    tr <- QC.run State.get
-    x <$ checkPredicateInnerOld opts predicate (void $ runEmulatorAction tr IMNil)
-                             debugOutput assertResult
-    where
-        debugOutput :: Monad m => String -> PropertyM m ()
-        debugOutput = QC.monitor . whenFail . putStrLn
-
-        assertResult :: Monad m => Bool -> PropertyM m ()
-        assertResult = QC.assert
-
 finalChecks :: CheckOptions -> TracePredicate -> PropertyM (ContractMonad state) a -> PropertyM (ContractMonad state) a
 finalChecks opts predicate prop = do
     x  <- prop
@@ -956,15 +939,6 @@ activateWallets (ContractInstanceSpec key wallet contract : spec) = do
     m <- activateWallets spec
     return $ IMCons key h m
 
--- | TODO: To delete. Uses the old chain index.
-propRunActionsOld_ ::
-    ContractModel state
-    => [ContractInstanceSpec state] -- ^ Required wallet contract instances
-    -> Actions state                 -- ^ The actions to run
-    -> Property
-propRunActionsOld_ handleSpecs actions =
-    propRunActionsOld handleSpecs (\ _ -> pure True) actions
-
 -- | Run a `Actions` in the emulator and check that the model and the emulator agree on the final
 --   wallet balance changes. Equivalent to
 --
@@ -979,15 +953,6 @@ propRunActions_ ::
 propRunActions_ handleSpecs actions =
     propRunActions handleSpecs (\ _ -> pure True) actions
 
--- | TODO: To delete. Uses the old chain index.
-propRunActionsOld ::
-    ContractModel state
-    => [ContractInstanceSpec state]         -- ^ Required wallet contract instances
-    -> (ModelState state -> TracePredicate) -- ^ Predicate to check at the end
-    -> Actions state                         -- ^ The actions to run
-    -> Property
-propRunActionsOld = propRunActionsWithOptionsOld defaultCheckOptions
-
 -- | Run a `Actions` in the emulator and check that the model and the emulator agree on the final
 --   wallet balance changes, and that the given `TracePredicate` holds at the end. Equivalent to:
 --
@@ -1001,25 +966,6 @@ propRunActions ::
     -> Actions state                         -- ^ The actions to run
     -> Property
 propRunActions = propRunActionsWithOptions defaultCheckOptions
-
--- | TODO: To delete. Uses the old chain index.
-propRunActionsWithOptionsOld ::
-    ContractModel state
-    => CheckOptions                          -- ^ Emulator options
-    -> [ContractInstanceSpec state]          -- ^ Required wallet contract instances
-    -> (ModelState state -> TracePredicate)  -- ^ Predicate to check at the end
-    -> Actions state                          -- ^ The actions to run
-    -> Property
-propRunActionsWithOptionsOld opts handleSpecs predicate actions' =
-    monadic (flip State.evalState mempty) $ finalChecksOld opts finalPredicate $ do
-        QC.run $ setHandles $ activateWallets handleSpecs
-        let initState = StateModel.initialState { _lastSlot = opts ^. maxSlot }
-        void $ runActionsInState initState actions
-    where
-        finalState     = stateAfter actions
-        finalPredicate = predicate finalState .&&. checkBalances finalState
-                                              .&&. checkNoCrashes handleSpecs
-        actions = toStateModelActions actions'
 
 -- | Run a `Actions` in the emulator and check that the model and the emulator agree on the final
 --   wallet balance changes, that no off-chain contract instance crashed, and that the given

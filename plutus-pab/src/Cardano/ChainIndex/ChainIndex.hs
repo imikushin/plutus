@@ -1,98 +1,63 @@
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE MonoLocalBinds    #-}
-{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes        #-}
 
 module Cardano.ChainIndex.ChainIndex
-    ( processIndexEffects
-    , healthcheck
-    , startWatching
-    , watchedAddresses
-    , confirmedBlocks
+    ( processChainIndexEffects
     , syncState
     ) where
 
 import           Cardano.BM.Data.Trace            (Trace)
-import           Control.Concurrent.MVar          (MVar, putMVar, takeMVar)
-import           Control.Monad.Freer              hiding (run)
+import           Control.Concurrent.STM           (TVar)
+import qualified Control.Concurrent.STM           as STM
+import           Control.Monad.Freer
+import           Control.Monad.Freer.Error        (runError)
 import qualified Control.Monad.Freer.State        as Eff
 import           Control.Monad.IO.Class           (MonadIO (..))
-import           Data.Foldable                    (traverse_)
-import           Data.Function                    ((&))
 import           Ledger.Blockchain                (Block)
 import           Ledger.Slot                      (Slot)
-import           Servant                          (NoContent (NoContent))
 
 import           Cardano.ChainIndex.Types
-import           Ledger.Address                   (Address)
-import           Ledger.AddressMap                (AddressMap)
+import           Plutus.ChainIndex                (ChainIndexEmulatorState, ChainIndexLog)
+import qualified Plutus.ChainIndex                as ChainIndex
 import           Plutus.PAB.Monitoring.Monitoring (convertLog, handleLogMsgTrace)
-import           Wallet.Effects                   (ChainIndexEffect)
-import qualified Wallet.Effects                   as ChainIndex
-import           Wallet.Emulator.ChainIndex       (ChainIndexControlEffect, ChainIndexEvent)
-import qualified Wallet.Emulator.ChainIndex       as ChainIndex
-import           Wallet.Emulator.NodeClient       (ChainClientNotification (BlockValidated, SlotChanged))
-
-healthcheck :: Monad m => m NoContent
-healthcheck = pure NoContent
-
--- TODO: Remove. Old chain index
-startWatching :: (Member ChainIndexEffect effs) => Address -> Eff effs NoContent
-startWatching addr = ChainIndex.startWatching addr >> pure NoContent
-
--- TODO: Remove. Old chain index
-watchedAddresses :: (Member ChainIndexEffect effs) => Eff effs AddressMap
-watchedAddresses = ChainIndex.watchedAddresses
-
--- TODO: Remove. Old chain index
-confirmedBlocks :: (Member ChainIndexEffect effs) => Eff effs [Block]
-confirmedBlocks = ChainIndex.confirmedBlocks
+import           Plutus.Trace.Emulator.System     (appendNewTipBlock)
 
 -- | Update the chain index by asking the node for new blocks since the last
 --   time.
---
--- TODO: Remove. Old chain index.
 syncState ::
-    ( Member ChainIndexControlEffect effs
+    ( Member ChainIndex.ChainIndexControlEffect effs
+    , Member ChainIndex.ChainIndexQueryEffect effs
     )
     => Block
     -> Slot
     -> Eff effs ()
 syncState block slot = do
-    traverse_ ChainIndex.chainIndexNotify [BlockValidated block, SlotChanged slot]
+    currentTip <- ChainIndex.getTip
+    appendNewTipBlock currentTip block slot
 
--- | Update the chain index by asking the node for new blocks since the last
---   time.
--- syncState ::
---     ( Member ChainIndex.ChainIndexControlEffect effs
---     , Member ChainIndex.ChainIndexQueryEffect effs
---     )
---     => Block
---     -> Slot
---     -> Eff effs ()
--- syncState block slot = do
---     currentTip <- ChainIndex.getTip
---     appendNewTipBlock currentTip block slot
-
--- TODO Remove. Uses old chain index
-processIndexEffects ::
+processChainIndexEffects ::
     MonadIO m
     => ChainIndexTrace
-    -> MVar AppState
+    -> TVar ChainIndexEmulatorState
     -> Eff (ChainIndexEffects IO) a
     -> m a
-processIndexEffects trace stateVar eff = do
-    AppState {_indexState, _indexEvents} <- liftIO $ takeMVar stateVar
-    (result, newState) <- liftIO
-        $ ChainIndex.handleChainIndexControl eff
-        & ChainIndex.handleChainIndex
-        & Eff.runState _indexState
-        & interpret (handleLogMsgTrace (toChainIndexServerMsg trace))
-        & runM
-    liftIO $ putMVar stateVar AppState{_indexState=newState, _indexEvents=_indexEvents}
-    pure result
-        where
-            toChainIndexServerMsg :: Trace m ChainIndexServerMsg -> Trace m ChainIndexEvent
-            toChainIndexServerMsg = convertLog ChainEvent
+processChainIndexEffects trace stateVar eff = do
+  emState <- liftIO $ STM.atomically $ STM.readTVar stateVar
+  resultE <- liftIO $
+        runM
+        $ runError
+        $ interpret (handleLogMsgTrace (toChainIndexServerMsg trace))
+        $ Eff.runState emState
+        $ interpret ChainIndex.handleQuery
+        $ interpret ChainIndex.handleControl eff
+  case resultE of
+    Left e -> error (show e)
+    Right (result, newEmState) -> do
+      liftIO $ STM.atomically $ STM.writeTVar stateVar newEmState
+      pure result
+  where
+      toChainIndexServerMsg :: Trace m ChainIndexServerMsg -> Trace m ChainIndexLog
+      toChainIndexServerMsg = convertLog ChainEvent

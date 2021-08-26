@@ -43,7 +43,7 @@ import           Plutus.ChainIndex.UtxoState               (InsertUtxoFailed, In
 import           Plutus.Contract.Checkpoint                (CheckpointError)
 import           Plutus.Contract.Effects                   (ActiveEndpoint, BalanceTxResponse, ChainIndexQuery,
                                                             ChainIndexResponse, Depth, PABReq, PABResp, TxStatus,
-                                                            TxValidity, UtxoAtAddress, WriteBalancedTxResponse)
+                                                            TxValidity, WriteBalancedTxResponse)
 import           Plutus.Contract.Resumable                 (IterationID, Request, RequestID, Response)
 import           Plutus.Trace.Emulator.Types               (ContractInstanceLog, ContractInstanceMsg,
                                                             ContractInstanceTag, EmulatorRuntimeError, UserThreadMsg)
@@ -54,10 +54,9 @@ import           Wallet.API                                (WalletAPIError)
 import qualified Wallet.Emulator.Wallet                    as EM
 import           Wallet.Rollup.Types                       (AnnotatedTx, BeneficialOwner, DereferencedInput, SequenceId,
                                                             TxKey)
-import           Wallet.Types                              (AddressChangeRequest, AddressChangeResponse, AssertionError,
-                                                            ContractError, ContractInstanceId, EndpointDescription,
-                                                            EndpointValue, MatchingError, Notification,
-                                                            NotificationError)
+import           Wallet.Types                              (AssertionError, ContractError, ContractInstanceId,
+                                                            EndpointDescription, EndpointValue, MatchingError,
+                                                            Notification, NotificationError)
 
 psJson :: PSType
 psJson = TypeInfo "web-common" "Data.RawJson" "RawJson" []
@@ -374,12 +373,9 @@ ledgerTypes =
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @(Page A))
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @Tip)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @PageSize)
-    , (equal <*> (genericShow <*> mkSumType)) (Proxy @AddressChangeRequest)
-    , (equal <*> (genericShow <*> mkSumType)) (Proxy @AddressChangeResponse)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @(EndpointValue A))
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @BalanceTxResponse)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @WriteBalancedTxResponse)
-    , (equal <*> (genericShow <*> mkSumType)) (Proxy @UtxoAtAddress)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @ActiveEndpoint)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @UnbalancedTx)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @TxValidity)

@@ -1,15 +1,14 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia        #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE GADTs              #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE NamedFieldPuns     #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE TemplateHaskell    #-}
-{-# LANGUAGE TypeApplications   #-}
-{-# LANGUAGE TypeOperators      #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE DerivingVia       #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE TypeOperators     #-}
 {-| Handlers for the 'ChainIndexQueryEffect' and the 'ChainIndexControlEffect'
     in the emulator
 -}
@@ -48,8 +47,7 @@ import           Plutus.ChainIndex.Types              (Tip (..), pageOf)
 import           Plutus.ChainIndex.UtxoState          (InsertUtxoPosition, InsertUtxoSuccess (..), RollbackResult (..),
                                                        UtxoIndex, isUnspentOutput, tip)
 import qualified Plutus.ChainIndex.UtxoState          as UtxoState
-import           Plutus.V1.Ledger.Api                 (Credential (ScriptCredential))
-import           Plutus.V1.Ledger.Credential          (Credential (PubKeyCredential))
+import           Plutus.V1.Ledger.Api                 (Credential (PubKeyCredential, ScriptCredential))
 import           Prettyprinter                        (Pretty (..), colon, (<+>))
 
 data ChainIndexEmulatorState =
@@ -79,14 +77,15 @@ getTxFromTxId i = do
 getTxOutFromRef ::
   forall effs.
   ( Member (State ChainIndexEmulatorState) effs
+  , Member (LogMsg ChainIndexLog) effs
   )
   => TxOutRef
   -> Eff effs (Maybe ChainIndexTxOut)
-getTxOutFromRef TxOutRef{txOutRefId, txOutRefIdx} = do
+getTxOutFromRef ref@TxOutRef{txOutRefId, txOutRefIdx} = do
   ds <- gets (view diskState)
   -- Find the output in the tx matching the output ref
   case preview (txMap . ix txOutRefId . citxOutputs . ix (fromIntegral txOutRefIdx)) ds of
-    Nothing -> pure Nothing
+    Nothing -> logWarn (TxOutNotFound ref) >> pure Nothing
     Just txout -> do
       -- The output might come from a public key address or a script address.
       -- We need to handle them differently.
@@ -95,7 +94,10 @@ getTxOutFromRef TxOutRef{txOutRefId, txOutRefIdx} = do
           pure $ Just $ PublicKeyChainIndexTxOut (txOutAddress txout) (txOutValue txout)
         ScriptCredential vh -> do
           case txOutDatumHash txout of
-            Nothing -> pure Nothing -- If the txout comes from a script address, the Datum should not be Nothing
+            Nothing -> do
+              -- If the txout comes from a script address, the Datum should not be Nothing
+              logWarn $ NoDatumScriptAddr txout
+              pure Nothing
             Just dh -> do
               let v = maybe (Left vh) Right $ preview (validatorMap . ix vh) ds
               let d = maybe (Left dh) Right $ preview (dataMap . ix dh) ds
@@ -194,7 +196,9 @@ data ChainIndexLog =
     | RollbackSuccess Tip
     | Err ChainIndexError
     | TxNotFound TxId
+    | TxOutNotFound TxOutRef
     | TipIsGenesis
+    | NoDatumScriptAddr TxOut
     deriving stock (Eq, Show, Generic)
     deriving anyclass (FromJSON, ToJSON)
 
@@ -210,4 +214,6 @@ instance Pretty ChainIndexLog where
     RollbackSuccess t -> "RollbackSuccess: New tip is" <+> pretty t
     Err ciError -> "ChainIndexError:" <+> pretty ciError
     TxNotFound txid -> "TxNotFound:" <+> pretty txid
+    TxOutNotFound ref -> "TxOut not found with:" <+> pretty ref
     TipIsGenesis -> "TipIsGenesis"
+    NoDatumScriptAddr txout -> "The following transaction output from a script adress does not have a datum:" <+> pretty txout

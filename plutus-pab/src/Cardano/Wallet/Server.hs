@@ -9,12 +9,10 @@
 {-# LANGUAGE TypeApplications      #-}
 
 module Cardano.Wallet.Server
-    ( mainOld
-    , main
+    ( main
     ) where
 
 import           Cardano.BM.Data.Trace               (Trace)
-import qualified Cardano.ChainIndex.Client           as ChainIndexClient
 import           Cardano.ChainIndex.Types            (ChainIndexUrl (..))
 import           Cardano.Node.Client                 as NodeClient
 import qualified Cardano.Protocol.Socket.Mock.Client as MockClient
@@ -24,10 +22,7 @@ import           Cardano.Wallet.Types                (Port (..), WalletConfig (.
                                                       WalletUrl (..), Wallets, createWallet, multiWallet)
 import           Control.Concurrent.Availability     (Availability, available)
 import           Control.Concurrent.MVar             (MVar, newMVar)
-import           Control.Monad.Freer                 (reinterpret2, runM)
-import           Control.Monad.Freer.Error           (handleError)
 import           Control.Monad.Freer.Extras.Log      (logInfo)
-import           Control.Monad.Freer.Reader          (runReader)
 import           Control.Monad.IO.Class              (liftIO)
 import           Data.Coerce                         (coerce)
 import           Data.Function                       ((&))
@@ -41,32 +36,10 @@ import qualified Network.Wai.Handler.Warp            as Warp
 import           Plutus.PAB.Arbitrary                ()
 import qualified Plutus.PAB.Monitoring.Monitoring    as LM
 import           Servant                             (Application, NoContent (..), hoistServer, serve, (:<|>) ((:<|>)))
-import           Servant.Client                      (BaseUrl (baseUrlPort), ClientEnv, ClientError, mkClientEnv)
-import           Wallet.Effects                      (balanceTx, ownPubKey, startWatching, submitTxn, totalFunds,
-                                                      walletAddSignature)
+import           Servant.Client                      (BaseUrl (baseUrlPort), ClientEnv, mkClientEnv)
+import           Wallet.Effects                      (balanceTx, ownPubKey, submitTxn, totalFunds, walletAddSignature)
 import           Wallet.Emulator.Wallet              (Wallet (..), emptyWalletState)
 import qualified Wallet.Emulator.Wallet              as Wallet
-
--- TODO Remove. Use old chain index
-appOld :: Trace IO WalletMsg
-    -> MockClient.TxSendHandle
-    -> NodeClient.ChainSyncHandle
-    -> ClientEnv
-    -> MVar Wallets
-    -> FeeConfig
-    -> SlotConfig
-    -> Application
-appOld trace txSendHandle chainSyncHandle chainIndexEnv mVarState feeCfg slotCfg =
-    serve (Proxy @(API Integer)) $
-    hoistServer
-        (Proxy @(API Integer))
-        (processWalletEffectsOld trace txSendHandle chainSyncHandle chainIndexEnv mVarState feeCfg slotCfg) $
-            createWallet :<|>
-            (\w tx -> multiWallet (Wallet w) (submitTxn tx) >>= const (pure NoContent)) :<|>
-            (\w -> (\pk -> WalletInfo{wiWallet = Wallet w, wiPubKey = pk, wiPubKeyHash = pubKeyHash pk}) <$> multiWallet (Wallet w) ownPubKey) :<|>
-            (\w -> multiWallet (Wallet w) . balanceTx) :<|>
-            (\w -> multiWallet (Wallet w) totalFunds) :<|>
-            (\w tx -> multiWallet (Wallet w) (walletAddSignature tx))
 
 app :: Trace IO WalletMsg
     -> MockClient.TxSendHandle
@@ -88,44 +61,12 @@ app trace txSendHandle chainSyncHandle chainIndexEnv mVarState feeCfg slotCfg =
             (\w -> multiWallet (Wallet w) totalFunds) :<|>
             (\w tx -> multiWallet (Wallet w) (walletAddSignature tx))
 
--- TODO Remove. Use old chain index
-mainOld :: Trace IO WalletMsg -> WalletConfig -> FeeConfig -> FilePath -> SlotConfig -> ChainIndexUrl -> Availability -> IO ()
-mainOld trace WalletConfig { baseUrl, wallet } feeCfg serverSocket slotCfg (ChainIndexUrl chainUrl) availability = LM.runLogEffects trace $ do
-    chainIndexEnv <- buildEnv chainUrl defaultManagerSettings
-    let knownWallets = Map.fromList $ (\w -> (w, emptyWalletState w)) . Wallet.Wallet <$> [1..10]
-    mVarState <- liftIO $ newMVar knownWallets
-    txSendHandle    <- liftIO $ MockClient.runTxSender   serverSocket
-    chainSyncHandle <- Left <$> (liftIO $ MockClient.runChainSync' serverSocket slotCfg)
-    runClient chainIndexEnv
-    logInfo $ StartingWallet (Port servicePort)
-    liftIO $ Warp.runSettings warpSettings
-           $ appOld trace
-                    txSendHandle
-                    chainSyncHandle
-                    chainIndexEnv
-                    mVarState
-                    feeCfg
-                    slotCfg
-    where
-        servicePort = baseUrlPort (coerce baseUrl)
-        warpSettings = Warp.defaultSettings & Warp.setPort servicePort & Warp.setBeforeMainLoop (available availability)
-
-        buildEnv url settings = liftIO
-            $ newManager settings >>= \mgr -> pure $ mkClientEnv mgr url
-
-        runClient env = liftIO
-             $ runM
-             $ flip handleError (error . show @ClientError)
-             $ runReader env
-             $ reinterpret2 ChainIndexClient.handleChainIndexClient
-             $ startWatching (Wallet.ownAddress (emptyWalletState wallet))
-
 main :: Trace IO WalletMsg -> WalletConfig -> FeeConfig -> FilePath -> SlotConfig -> ChainIndexUrl -> Availability -> IO ()
 main trace WalletConfig { baseUrl } feeCfg serverSocket slotCfg (ChainIndexUrl chainUrl) availability = LM.runLogEffects trace $ do
     chainIndexEnv <- buildEnv chainUrl defaultManagerSettings
     let knownWallets = Map.fromList $ (\w -> (w, emptyWalletState w)) . Wallet.Wallet <$> [1..10]
     mVarState <- liftIO $ newMVar knownWallets
-    txSendHandle    <- liftIO $ MockClient.runTxSender   serverSocket
+    txSendHandle    <- liftIO $ MockClient.runTxSender serverSocket
     chainSyncHandle <- Left <$> (liftIO $ MockClient.runChainSync' serverSocket slotCfg)
     logInfo $ StartingWallet (Port servicePort)
     liftIO $ Warp.runSettings warpSettings

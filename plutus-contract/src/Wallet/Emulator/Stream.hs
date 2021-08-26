@@ -18,7 +18,6 @@ module Wallet.Emulator.Stream(
     , initialState
     , slotConfig
     , feeConfig
-    , runTraceStreamOld
     , runTraceStream
     -- * Stream manipulation
     , takeUntilSlot
@@ -107,37 +106,6 @@ foldEmulatorStreamM :: forall effs a b.
     -> Eff effs (S.Of b a)
 foldEmulatorStreamM theFold =
     foldStreamM (L.premapM (pure . view logMessageContent) theFold)
-
--- | Turn an emulator action into a 'Stream' of emulator log messages, returning
---   the final state of the emulator.
--- TODO: To delete. Uses the old chain index.
-runTraceStreamOld :: forall effs.
-    EmulatorConfig
-    -> Eff '[ State EmulatorState
-            , LogMsg EmulatorEvent'
-            , MultiAgentEffect
-            , MultiAgentControlEffect
-            , ChainEffect
-            , ChainControlEffect
-            , Error EmulatorRuntimeError
-            ] ()
-    -> Stream (Of (LogMessage EmulatorEvent)) (Eff effs) (Maybe EmulatorErr, EmulatorState)
-runTraceStreamOld conf@EmulatorConfig{_slotConfig, _feeConfig} =
-    fmap (first (either Just (const Nothing)))
-    . S.hoist (pure . run)
-    . runStream @(LogMessage EmulatorEvent) @_ @'[]
-    . runState (initialState conf)
-    . interpret handleLogCoroutine
-    . reinterpret @_ @(LogMsg EmulatorEvent) (mkTimedLogs @EmulatorEvent')
-    . runError
-    . wrapError WalletErr
-    . wrapError ChainIndexErr
-    . wrapError AssertionErr
-    . wrapError InstanceErr
-    . EM.processEmulatedOld _slotConfig _feeConfig
-    . subsume
-    . subsume @(State EmulatorState)
-    . raiseEnd
 
 -- | Turn an emulator action into a 'Stream' of emulator log messages, returning
 --   the final state of the emulator.

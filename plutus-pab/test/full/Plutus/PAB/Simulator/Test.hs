@@ -13,8 +13,7 @@ import           Plutus.PAB.Core                          (EffectHandlers)
 import           Plutus.PAB.Effects.Contract.Builtin      (Builtin, BuiltinHandler (contractHandler), handleBuiltin)
 import           Plutus.PAB.Effects.Contract.ContractTest (TestContracts (..))
 import           Plutus.PAB.Simulator                     (Simulation, SimulatorContractHandler, SimulatorState,
-                                                           mkSimulatorHandlers, mkSimulatorHandlersOld,
-                                                           runSimulationWith)
+                                                           mkSimulatorHandlers, runSimulationWith)
 import           Plutus.PAB.Types                         (PABError)
 
 -- | Run the PAB simulator with the test contracts

@@ -9,9 +9,7 @@
 module Plutus.Contract.Wallet(
       balanceTx
     , handleTx
-    , getUnspentOutputOld
     , getUnspentOutput
-    , WAPI.startWatching
     , WAPI.signTxAndSubmit
     ) where
 
@@ -23,7 +21,7 @@ import qualified Data.Set                    as Set
 import           Data.Void                   (Void)
 import qualified Ledger.Ada                  as Ada
 import           Ledger.Constraints          (mustPayToPubKey)
-import           Ledger.Constraints.OffChain (UnbalancedTx (..), mkTx, mkTxOld)
+import           Ledger.Constraints.OffChain (UnbalancedTx (..), mkTx)
 import           Ledger.Crypto               (pubKeyHash)
 import           Ledger.Tx                   (Tx (..), TxOutRef, txInRef)
 import qualified Plutus.Contract.Request     as Contract
@@ -77,19 +75,6 @@ handleTx ::
     )
     => UnbalancedTx -> Eff effs Tx
 handleTx = balanceTx >=> either throwError WAPI.signTxAndSubmit
-
--- | Get an unspent output belonging to the wallet.
---
--- TODO: To delete. Uses the old chain index
-getUnspentOutputOld :: AsContractError e => Contract w s e TxOutRef
-getUnspentOutputOld = do
-    ownPK <- Contract.ownPubKey
-    let constraints = mustPayToPubKey (pubKeyHash ownPK) (Ada.lovelaceValueOf 1)
-    utx <- either (throwing _ConstraintResolutionError) pure (mkTxOld @Void mempty constraints)
-    tx <- Contract.balanceTx utx
-    case Set.lookupMin (txInputs tx) of
-        Just inp -> pure $ txInRef inp
-        Nothing  -> throwing _OtherError "Balanced transaction has no inputs"
 
 -- | Get an unspent output belonging to the wallet.
 getUnspentOutput :: AsContractError e => Contract w s e TxOutRef

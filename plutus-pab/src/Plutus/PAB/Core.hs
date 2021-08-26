@@ -123,7 +123,7 @@ import           Plutus.PAB.Types                        (PABError (ContractInst
 import           Plutus.PAB.Webserver.Types              (ContractActivationArgs (..))
 import           Wallet.API                              (PubKey, Slot)
 import qualified Wallet.API                              as WAPI
-import           Wallet.Effects                          (ChainIndexEffect, NodeClientEffect, WalletEffect)
+import           Wallet.Effects                          (NodeClientEffect, WalletEffect)
 import           Wallet.Emulator.LogMessages             (RequestHandlerLogMsg, TxBalanceMsg)
 import           Wallet.Emulator.MultiAgent              (EmulatorEvent' (..), EmulatorTimeEvent (..))
 import           Wallet.Emulator.Wallet                  (Wallet, WalletEvent (..))
@@ -308,7 +308,6 @@ type ContractInstanceEffects t env effs =
     ContractEffect t
     ': ContractStore t
     ': WalletEffect
-    ': ChainIndexEffect
     ': ChainIndexQueryEffect
     ': NodeClientEffect
     ': UUIDEffect
@@ -417,8 +416,7 @@ data EffectHandlers t env =
             , LastMember IO effs
             )
             => Wallet
-            -- TODO: Remove old chain index 'ChainIndexEffect'
-            -> Eff (WalletEffect ': ChainIndexEffect ': ChainIndexQueryEffect ': NodeClientEffect ': effs)
+            -> Eff (WalletEffect ': ChainIndexQueryEffect ': NodeClientEffect ': effs)
             ~> Eff effs
 
         -- | Action to run on startup.

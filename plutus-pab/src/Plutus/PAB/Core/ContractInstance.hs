@@ -58,11 +58,10 @@ import           Plutus.Contract.Trace.RequestHandler             (RequestHandle
                                                                    maybeToHandler, tryHandler', wrapHandler)
 import           Plutus.PAB.Core.ContractInstance.RequestHandlers (ContractInstanceMsg (..))
 
-import           Wallet.Effects                                   (ChainIndexEffect, NodeClientEffect, WalletEffect)
+import           Wallet.Effects                                   (NodeClientEffect, WalletEffect)
 import           Wallet.Emulator.LogMessages                      (TxBalanceMsg)
 
 import           Plutus.ChainIndex                                (ChainIndexQueryEffect)
-import           Plutus.Contract                                  (AddressChangeRequest (..))
 import           Plutus.PAB.Core.ContractInstance.STM             (Activity (Done, Stopped), BlockchainEnv (..),
                                                                    InstanceState (..), InstancesState,
                                                                    callEndpointOnInstance, emptyInstanceState)
@@ -229,8 +228,7 @@ processAwaitTimeRequestsSTM =
 -- | 'RequestHandler' that uses TVars to wait for events
 stmRequestHandler ::
     forall effs.
-    ( Member ChainIndexEffect effs
-    , Member ChainIndexQueryEffect effs
+    ( Member ChainIndexQueryEffect effs
     , Member WalletEffect effs
     , Member NodeClientEffect effs
     , Member (LogMsg RequestHandlerLogMsg) effs
@@ -246,11 +244,9 @@ stmRequestHandler = fmap sequence (wrapHandler (fmap pure nonBlockingRequests) <
     nonBlockingRequests =
         RequestHandler.handleOwnPubKeyQueries @effs
         <> RequestHandler.handleChainIndexQueries @effs
-        <> RequestHandler.handleUtxoQueriesOld @effs
         <> RequestHandler.handleUnbalancedTransactions @effs
-        <> RequestHandler.handlePendingTransactionsOld @effs
+        <> RequestHandler.handlePendingTransactions @effs
         <> RequestHandler.handleOwnInstanceIdQueries @effs
-        <> RequestHandler.handleAddressChangedAtQueriesOld @effs
         <> RequestHandler.handleCurrentSlotQueries @effs
         <> RequestHandler.handleCurrentTimeQueries @effs
 
@@ -305,7 +301,6 @@ type AppBackendConstraints t m effs =
     , MonadIO m
     , Member (Error PABError) effs
     , Member (LogMsg (ContractInstanceMsg t)) effs
-    , Member ChainIndexEffect effs
     , Member ChainIndexQueryEffect effs
     , Member WalletEffect effs
     , Member NodeClientEffect effs
@@ -367,20 +362,17 @@ updateState ContractResponse{newState = State{observableState}, hooks} = do
         forM_ hooks $ \r -> do
             case rqRequest r of
                 AwaitTxStatusChangeReq txid -> InstanceState.addTransaction txid state
-                UtxoAtReq addr -> InstanceState.addAddress addr state
-                AddressChangeReq AddressChangeRequest{acreqAddress} -> InstanceState.addAddress acreqAddress state
-                ExposeEndpointReq endpoint -> InstanceState.addEndpoint (r { rqRequest = endpoint}) state
-                AwaitUtxoSpentReq txOutRef -> InstanceState.addUtxoSpentReq (r { rqRequest = txOutRef }) state
-                AwaitUtxoProducedReq addr  -> InstanceState.addUtxoProducedReq (r { rqRequest = addr }) state
-                _ -> pure ()
+                ExposeEndpointReq endpoint  -> InstanceState.addEndpoint (r { rqRequest = endpoint}) state
+                AwaitUtxoSpentReq txOutRef  -> InstanceState.addUtxoSpentReq (r { rqRequest = txOutRef }) state
+                AwaitUtxoProducedReq addr   -> InstanceState.addUtxoProducedReq (r { rqRequest = addr }) state
+                _                           -> pure ()
         InstanceState.setObservableState observableState state
 
 -- | Run the STM-based request handler on a non-empty list
 --   of requests.
 respondToRequestsSTM ::
     forall t effs.
-    ( Member ChainIndexEffect effs
-    , Member ChainIndexQueryEffect effs
+    ( Member ChainIndexQueryEffect effs
     , Member WalletEffect effs
     , Member NodeClientEffect effs
     , Member (LogMsg RequestHandlerLogMsg) effs

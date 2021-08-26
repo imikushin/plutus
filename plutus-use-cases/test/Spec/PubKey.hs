@@ -23,12 +23,10 @@ w1 = Wallet 1
 
 theContract :: Contract () EmptySchema PubKeyError ()
 theContract = do
-  (txOutRef, ciTxOut, txOutTx, pkInst) <- pubKeyContract (Ledger.pubKeyHash $ walletPubKey w1) (Ada.lovelaceValueOf 10)
+  (txOutRef, ciTxOut, pkInst) <- pubKeyContract (Ledger.pubKeyHash $ walletPubKey w1) (Ada.lovelaceValueOf 10)
   let lookups = ScriptLookups
                   { slMPS = Map.empty
-                  , slTxOutputs' = Map.singleton txOutRef txOutTx -- TODO Remove, used by old chain index
                   , slTxOutputs = maybe mempty (Map.singleton txOutRef) ciTxOut
-                  , slOtherScripts' = Map.singleton (Scripts.validatorAddress pkInst) (Scripts.validatorScript pkInst) -- TODO Remove, used by old chain index
                   , slOtherScripts = Map.singleton (Scripts.validatorHash pkInst) (Scripts.validatorScript pkInst)
                   , slOtherData = Map.empty
                   , slPubKeyHashes = Map.empty

@@ -24,7 +24,7 @@ module Plutus.PAB.Run.Cli (ConfigCommandArgs(..), runConfigCommand, runNoConfigC
 import           Cardano.BM.Configuration              (Configuration)
 import qualified Cardano.BM.Configuration.Model        as CM
 import           Cardano.BM.Data.Trace                 (Trace)
-import qualified Cardano.ChainIndex.Server             as ChainIndexOld
+import qualified Cardano.ChainIndex.Server             as ChainIndex
 import qualified Cardano.Node.Server                   as NodeServer
 import           Cardano.Node.Types                    (MockServerConfig (..), NodeMode (..))
 import qualified Cardano.Wallet.Server                 as WalletServer
@@ -51,7 +51,6 @@ import           Data.Text.Prettyprint.Doc             (Pretty (..), defaultLayo
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Time.Units                       (Second)
 import           Data.Typeable                         (Typeable)
-import qualified Plutus.ChainIndex.Server              as ChainIndex
 import           Plutus.Contract.Resumable             (responses)
 import           Plutus.Contract.State                 (State (..))
 import qualified Plutus.Contract.State                 as State
@@ -119,17 +118,6 @@ runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig=Config{dbConfig}} Mi
     App.migrate (toPABMsg ccaTrace) dbConfig
 
 -- Run mock wallet service
-runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig = Config {nodeServerConfig, chainIndexConfig, walletServerConfig},ccaAvailability} MockWalletOld =
-    liftIO $ WalletServer.mainOld
-        (toWalletLog ccaTrace)
-        walletServerConfig
-        (mscFeeConfig nodeServerConfig)
-        (mscSocketPath nodeServerConfig)
-        (mscSlotConfig nodeServerConfig)
-        (ChainIndexOld.ciBaseUrl chainIndexConfig)
-        ccaAvailability
-
--- Run mock wallet service
 runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig = Config {nodeServerConfig, chainIndexConfig, walletServerConfig},ccaAvailability} MockWallet =
     liftIO $ WalletServer.main
         (toWalletLog ccaTrace)
@@ -137,7 +125,7 @@ runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig = Config {nodeServer
         (mscFeeConfig nodeServerConfig)
         (mscSocketPath nodeServerConfig)
         (mscSlotConfig nodeServerConfig)
-        (ChainIndexOld.ciBaseUrl chainIndexConfig)
+        (ChainIndex.ciBaseUrl chainIndexConfig)
         ccaAvailability
 
 -- Run mock node server
@@ -216,18 +204,12 @@ runConfigCommand contractHandler c@ConfigCommandArgs{ccaAvailability} (ForkComma
       pure asyncId
 
 -- Run the chain-index service
-runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig=Config {nodeServerConfig, chainIndexConfig}, ccaAvailability} ChainIndexOld =
-    ChainIndexOld.main
+runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig=Config { nodeServerConfig, chainIndexConfig }} ChainIndex = do
+    ChainIndex.main
         (toChainIndexLog ccaTrace)
         chainIndexConfig
         (mscSocketPath nodeServerConfig)
         (mscSlotConfig nodeServerConfig)
-        ccaAvailability
-
--- Run the chain-index service
-runConfigCommand _ ConfigCommandArgs{} ChainIndex = do
-    tVarState <- STM.atomically $ STM.newTVar mempty
-    ChainIndex.serveChainIndexQueryServer 9083 tVarState -- TODO: Read port from config
 
 -- Get the state of a contract
 runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig=Config{dbConfig}} (ContractState contractInstanceId) = do

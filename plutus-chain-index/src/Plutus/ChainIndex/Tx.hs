@@ -5,13 +5,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TupleSections     #-}
 {-| The chain index' version of a transaction
 -}
 module Plutus.ChainIndex.Tx(
     ChainIndexTx(..)
     , fromOnChainTx
     , txOutRefs
-    , outputsMapFromTxForAddress
+    , txOutsWithRef
+    , txOutRefMap
+    , txOutRefMapForAddr
     -- ** Lenses
     , citxTxId
     , citxInputs
@@ -32,6 +35,7 @@ import qualified Data.Map                  as Map
 import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Data.Text.Prettyprint.Doc
+import           Data.Tuple                (swap)
 import           GHC.Generics              (Generic)
 import           Ledger                    (Address, Datum, DatumHash, MintingPolicy, MintingPolicyHash, OnChainTx (..),
                                             Redeemer (..), RedeemerHash, SlotRange, StakeValidator, StakeValidatorHash,
@@ -75,19 +79,28 @@ instance Pretty ChainIndexTx where
             isValidS = if _citxIsValid t then "Valid:" else "Invalid:"
         in nest 2 $ vsep [isValidS <+> "tx" <+> pretty _citxTxId <> colon, braces (vsep lines')]
 
-txOutRefs :: ChainIndexTx -> [(TxOut, TxOutRef)]
+-- | Get tx output references from tx.
+txOutRefs :: ChainIndexTx -> [TxOutRef]
 txOutRefs ChainIndexTx{_citxTxId, _citxOutputs} =
-    map (\(output, idx) -> (output, TxOutRef _citxTxId idx)) $ zip _citxOutputs [0..]
+  map (\idx -> TxOutRef _citxTxId idx) [0 .. fromIntegral $ length _citxOutputs - 1]
 
--- | Get map of tx outputs from tx for specific address.
-outputsMapFromTxForAddress :: Address -> ChainIndexTx -> Map TxOutRef TxOut
-outputsMapFromTxForAddress addr tx
-  | _citxIsValid tx = Map.filter ((==) addr . txOutAddress)
-                    $ Map.fromList
-                    $ fmap (\(out, ref) -> (ref, out))
-                    $ txOutRefs tx
-  | otherwise = mempty
+-- | Get tx output references and tx outputs from tx.
+txOutsWithRef :: ChainIndexTx -> [(TxOut, TxOutRef)]
+txOutsWithRef tx@ChainIndexTx{_citxOutputs} = zip _citxOutputs $ txOutRefs tx
 
+-- | Get 'Map' of tx outputs references to tx.
+txOutRefMap :: ChainIndexTx -> Map TxOutRef (TxOut, ChainIndexTx)
+txOutRefMap tx =
+    fmap (, tx) $ Map.fromList $ fmap swap $ txOutsWithRef tx
+
+-- | Get 'Map' of tx outputs from tx for a specific address.
+txOutRefMapForAddr :: Address -> ChainIndexTx -> Map TxOutRef (TxOut, ChainIndexTx)
+txOutRefMapForAddr addr tx =
+    Map.filter ((==) addr . txOutAddress . fst) $ txOutRefMap tx
+
+-- | Convert a 'OnChainTx' to a 'ChainIndexTx'. An invalid 'OnChainTx' will not
+-- produce any 'ChainIndexTx' outputs and the collateral inputs of the
+-- 'OnChainTx' will be the inputs of the 'ChainIndexTx'.
 fromOnChainTx :: OnChainTx -> ChainIndexTx
 fromOnChainTx = \case
     Valid tx@Tx{txInputs, txOutputs, txValidRange, txData, txMintScripts} ->

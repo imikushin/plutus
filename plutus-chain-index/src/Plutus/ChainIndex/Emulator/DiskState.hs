@@ -34,7 +34,7 @@ import           Ledger.Credential      (Credential)
 import           Ledger.Scripts         (Datum, DatumHash, MintingPolicy, MintingPolicyHash, StakeValidator,
                                          StakeValidatorHash, Validator, ValidatorHash)
 import           Ledger.TxId            (TxId)
-import           Plutus.ChainIndex.Tx   (ChainIndexTx (..), txOutRefs)
+import           Plutus.ChainIndex.Tx   (ChainIndexTx (..), txOutsWithRef)
 
 -- | Set of transaction output references for each address.
 newtype CredentialMap = CredentialMap { _unCredentialMap :: Map Credential (Set TxOutRef) }
@@ -64,7 +64,7 @@ instance Monoid CredentialMap where
 txCredentialMap :: ChainIndexTx -> CredentialMap
 txCredentialMap  =
     let credential TxOut{txOutAddress=Address{addressCredential}} = addressCredential
-    in CredentialMap . Map.fromListWith (<>) . fmap (bimap credential Set.singleton) . txOutRefs
+    in CredentialMap . Map.fromListWith (<>) . fmap (bimap credential Set.singleton) . txOutsWithRef
 
 -- | Data that we keep on disk. (This type is used for testing only - we need
 --   other structures for the disk-backed storage)

@@ -52,6 +52,10 @@ import           Plutus.V1.Ledger.Tx       as Export
 -- It is defined here instead of the plutus-chain-index because plutus-ledger
 -- uses that datatype, and plutus-chain-index can't depend on plutus-ledger
 -- because of a cyclic dependency.
+--
+-- This datatype was created in order to be used in
+-- 'Ledger.Constraints.processConstraint', specifically with the constraints
+-- 'MustSpendPubKeyOutput' and 'MustSpendScriptOutput'.
 data ChainIndexTxOut =
     PublicKeyChainIndexTxOut { _ciTxOutAddress :: Address
                              , _ciTxOutValue   :: Value

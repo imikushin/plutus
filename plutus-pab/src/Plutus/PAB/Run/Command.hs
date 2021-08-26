@@ -22,9 +22,7 @@ import           Wallet.Types (ContractInstanceId)
 data ConfigCommand =
     Migrate
     | StartMockNode -- ^ Run the mock node service
-    | MockWalletOld -- ^ Run the old mock wallet service. TODO: Remove
     | MockWallet -- ^ Run the mock wallet service
-    | ChainIndexOld -- ^ Run the old chain index service. TODO Remove
     | ChainIndex -- ^ Run the chain index service
     | ForkCommands [ConfigCommand] -- ^ Fork a list of commands
     | ContractState ContractInstanceId -- ^ Display the contract identified by 'ContractInstanceId'
@@ -44,9 +42,9 @@ allServices :: ConfigCommand
 allServices =
   ForkCommands
     [ StartMockNode
-    , ChainIndexOld
-    , MockWalletOld
+    , MockWallet
     , PABWebserver
+    , ChainIndex
     ]
 
 

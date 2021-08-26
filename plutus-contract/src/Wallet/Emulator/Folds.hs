@@ -33,7 +33,6 @@ module Wallet.Emulator.Folds (
     , utxoAtAddress
     , valueAtAddress
     -- * Folds for individual wallets (emulated agents)
-    , walletWatchingAddress
     , walletFunds
     , walletFees
     , walletTxBalanceEvents
@@ -81,10 +80,9 @@ import           Plutus.Trace.Emulator.ContractInstance (ContractInstanceState, 
 import           Plutus.Trace.Emulator.Types            (ContractInstanceLog, ContractInstanceTag, UserThreadMsg,
                                                          _HandledRequest, cilMessage, cilTag, toInstanceState)
 import           Wallet.Emulator.Chain                  (ChainEvent (..), _TxnValidate, _TxnValidationFail)
-import           Wallet.Emulator.ChainIndex             (_AddressStartWatching)
 import           Wallet.Emulator.LogMessages            (_BalancingUnbalancedTx, _ValidationFailed)
-import           Wallet.Emulator.MultiAgent             (EmulatorEvent, EmulatorTimeEvent, chainEvent, chainIndexEvent,
-                                                         eteEvent, instanceEvent, userThreadEvent, walletClientEvent,
+import           Wallet.Emulator.MultiAgent             (EmulatorEvent, EmulatorTimeEvent, chainEvent, eteEvent,
+                                                         instanceEvent, userThreadEvent, walletClientEvent,
                                                          walletEvent')
 import           Wallet.Emulator.NodeClient             (_TxSubmit)
 import           Wallet.Emulator.Wallet                 (Wallet, _TxBalanceLog, walletAddress)
@@ -231,8 +229,6 @@ instanceOutcome con =
     fmap (fromMaybe NotDone . fmap (fromResumableResult . instContractState)) . instanceState con
 
 -- | Unspent outputs at an address
---
--- TODO Adapt to use ChainIndexTx
 utxoAtAddress :: Address -> EmulatorEventFold UtxoMap
 utxoAtAddress addr =
     preMapMaybe (preview (eteEvent . chainEvent))
@@ -259,14 +255,6 @@ walletFees w = fees <$> walletSubmittedFees <*> validatedTransactions <*> failed
         fees submitted txsV txsF = findFees (\(i, _, _) -> i) submitted txsV <> findFees (\(i, _, _, _) -> i) submitted txsF
         findFees getId submitted = foldMap (\t -> fold (Map.lookup (getId t) submitted))
         walletSubmittedFees = L.handles (eteEvent . walletClientEvent w . _TxSubmit) L.map
-
--- | Whether the wallet is watching an address
---
--- TODO: Delete. Uses the old chain index
-walletWatchingAddress :: Wallet -> Address -> EmulatorEventFold Bool
-walletWatchingAddress wllt addr =
-    preMapMaybe (preview (eteEvent . chainIndexEvent wllt . _AddressStartWatching))
-    $ L.any ((==) addr)
 
 -- | Annotate the transactions that were validated by the node
 annotatedBlockchain :: EmulatorEventFold [[AnnotatedTx]]

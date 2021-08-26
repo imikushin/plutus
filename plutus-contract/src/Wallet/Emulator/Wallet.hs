@@ -40,7 +40,6 @@ import           Data.Text.Prettyprint.Doc
 import           GHC.Generics                   (Generic)
 import           Ledger
 import qualified Ledger.Ada                     as Ada
-import qualified Ledger.AddressMap              as AM
 import           Ledger.Constraints.OffChain    (UnbalancedTx (..))
 import qualified Ledger.Constraints.OffChain    as U
 import           Ledger.Credential              (Credential (..))
@@ -56,10 +55,8 @@ import qualified PlutusTx.Prelude               as PlutusTx
 import           Prelude                        as P
 import           Servant.API                    (FromHttpApiData (..), ToHttpApiData (..))
 import qualified Wallet.API                     as WAPI
-import           Wallet.Effects                 (ChainIndexEffect, NodeClientEffect, WalletEffect (..), publishTx,
-                                                 watchedAddresses)
+import           Wallet.Effects                 (NodeClientEffect, WalletEffect (..), publishTx)
 import           Wallet.Emulator.Chain          (ChainState (..))
-import           Wallet.Emulator.ChainIndex     (ChainIndexState, idxWatchedAddresses)
 import           Wallet.Emulator.LogMessages    (RequestHandlerLogMsg, TxBalanceMsg (..))
 import           Wallet.Emulator.NodeClient     (NodeClientState, emptyNodeClientState)
 
@@ -124,7 +121,6 @@ makePrisms ''WalletEvent
 data WalletState = WalletState {
     _ownPrivateKey           :: PrivateKey, -- ^ User's 'PrivateKey'.
     _nodeClient              :: NodeClientState,
-    _chainIndex              :: ChainIndexState, -- TODO To delete. Old chain index
     _chainIndexEmulatorState :: ChainIndexEmulatorState,
     _signingProcess          :: SigningProcess
     } deriving Show
@@ -138,16 +134,17 @@ ownAddress = pubKeyAddress . toPublicKey . view ownPrivateKey
 -- | An empty wallet state with the public/private key pair for a wallet, and the public-key address
 -- for that wallet as the sole watched address.
 emptyWalletState :: Wallet -> WalletState
-emptyWalletState w = WalletState pk emptyNodeClientState mempty mempty sp  where
+emptyWalletState w = WalletState pk emptyNodeClientState mempty sp  where
     pk = walletPrivKey w
     sp = defaultSigningProcess w
 
 -- | An empty wallet using the given private key.
 -- for that wallet as the sole watched address.
 emptyWalletStateFromPrivateKey :: PrivateKey -> WalletState
-emptyWalletStateFromPrivateKey pk = WalletState pk emptyNodeClientState mempty mempty sp where
+emptyWalletStateFromPrivateKey pk = WalletState pk emptyNodeClientState mempty sp where
     sp = signWithPrivateKey pk
 
+{-# DEPRECATED PaymentArgs "Not used anywhere" #-}
 data PaymentArgs =
     PaymentArgs
         { availableFunds :: Map.Map TxOutRef TxOutTx
@@ -157,35 +154,6 @@ data PaymentArgs =
         , requestedValue :: Value
         -- ^ The value that must be covered by the payment's inputs
         }
-
--- TODO: To delete. Uses the old chain index.
-handleWalletOld ::
-    ( Member NodeClientEffect effs
-    , Member ChainIndexEffect effs
-    , Member (State WalletState) effs
-    , Member (LogMsg TxBalanceMsg) effs
-    )
-    => FeeConfig
-    -> WalletEffect ~> Eff effs
-handleWalletOld feeCfg = \case
-    SubmitTxn tx -> do
-        logInfo $ SubmittingTx tx
-        publishTx tx
-    OwnPubKey -> toPublicKey <$> gets _ownPrivateKey
-    BalanceTx utx' -> runError $ do
-        logInfo $ BalancingUnbalancedTx utx'
-        utxo <- get >>= ownOutputsOld
-        slotConfig <- WAPI.getClientSlotConfig
-        let validitySlotRange = posixTimeRangeToContainedSlotRange slotConfig (utx' ^. U.validityTimeRange)
-        let utx = utx' & U.tx . validRange .~ validitySlotRange
-        utxWithFees <- validateTxAndAddFeesOld feeCfg utxo utx
-        -- balance to add fees
-        tx' <- handleBalanceTxOld utxo (utx & U.tx . fee .~ (utxWithFees ^. U.tx . fee))
-        tx'' <- handleAddSignature tx'
-        logInfo $ FinishedBalancing tx''
-        pure tx''
-    WalletAddSignature tx -> handleAddSignature tx
-    TotalFunds -> foldMap txOutValue <$> (get >>= ownOutputsOld)
 
 handleWallet ::
     ( Member NodeClientEffect effs
@@ -208,7 +176,6 @@ handleWallet feeCfg = \case
         let utx = utx' & U.tx . validRange .~ validitySlotRange
         utxWithFees <- validateTxAndAddFees feeCfg utxo utx
         -- balance to add fees
-        -- TODO Pass in utxo instead of requerying the chain index for txout
         tx' <- handleBalanceTx utxo (utx & U.tx . fee .~ (utxWithFees ^. U.tx . fee))
         tx'' <- handleAddSignature tx'
         logInfo $ FinishedBalancing tx''
@@ -224,16 +191,6 @@ handleAddSignature tx = do
     privKey <- gets _ownPrivateKey
     pure (addSignature privKey tx)
 
--- TODO: To delete. Uses the old chain index.
-ownOutputsOld :: forall effs.
-    ( Member ChainIndexEffect effs
-    )
-    => WalletState
-    -> Eff effs (Map.Map TxOutRef TxOut)
-ownOutputsOld WalletState{_ownPrivateKey} = do
-    let addr = pubKeyAddress $ toPublicKey _ownPrivateKey
-    fmap (fmap txOutTxOut) $ fromMaybe mempty . view (at addr) <$> watchedAddresses
-
 ownOutputs :: forall effs.
     ( Member ChainIndexQueryEffect effs
     )
@@ -246,30 +203,6 @@ ownOutputs WalletState{_ownPrivateKey} = do
   where
     txOutRefTxOutFromRef :: TxOutRef -> Eff effs (Maybe (TxOutRef, ChainIndexTxOut))
     txOutRefTxOutFromRef ref = fmap (ref,) <$> ChainIndex.txOutFromRef ref
-
--- TODO: To delete. Uses the old chain index.
-validateTxAndAddFeesOld ::
-    ( Member (Error WAPI.WalletAPIError) effs
-    , Member ChainIndexEffect effs
-    , Member (LogMsg TxBalanceMsg) effs
-    , Member (State WalletState) effs
-    )
-    => FeeConfig
-    -> Map.Map TxOutRef TxOut
-    -> UnbalancedTx
-    -> Eff effs UnbalancedTx
-validateTxAndAddFeesOld feeCfg ownTxOuts utx = do
-    -- Balance and sign just for validation
-    tx <- handleBalanceTxOld ownTxOuts utx
-    signedTx <- handleAddSignature tx
-    let utxoIndex        = Ledger.UtxoIndex $ unBalancedTxUtxoIndex utx <> ownTxOuts
-        ((e, _), events) = Ledger.runValidation (Ledger.validateTransactionOffChain signedTx) utxoIndex
-    for_ e $ \(phase, ve) -> do
-        logWarn $ ValidationFailed phase (txId tx) tx ve events
-        throwError $ WAPI.ValidationError ve
-    let scriptsSize = getSum $ foldMap (Sum . scriptSize . Ledger.sveScript) events
-        theFee = Ada.toValue $ calcFees feeCfg scriptsSize -- TODO: use protocol parameters
-    pure $ utx{ unBalancedTxTx = (unBalancedTxTx utx){ txFee = theFee }}
 
 validateTxAndAddFees ::
     ( Member (Error WAPI.WalletAPIError) effs
@@ -294,26 +227,6 @@ validateTxAndAddFees feeCfg ownTxOuts utx = do
         theFee = Ada.toValue $ calcFees feeCfg scriptsSize -- TODO: use protocol parameters
     pure $ utx{ unBalancedTxTx = (unBalancedTxTx utx){ txFee = theFee }}
 
--- TODO: To delete. Uses the old chain index.
-lookupValueOld ::
-    ( Member (Error WAPI.WalletAPIError) effs
-    , Member ChainIndexEffect effs -- TODO Delete
-    , Member (State WalletState) effs
-    )
-    => Map.Map TxOutRef TxOut
-    -> Tx.TxIn
-    -> Eff effs Value
-lookupValueOld otherInputsMap outputRef = do
-    walletIndexMap <- fmap Tx.txOutTxOut . AM.outRefMap . view (chainIndex . idxWatchedAddresses) <$> get
-
-    chainIndexMap <- fmap Tx.txOutTxOut . AM.outRefMap <$> WAPI.watchedAddresses
-
-    let txout = (otherInputsMap <> walletIndexMap <> chainIndexMap) ^. at (Tx.txInRef outputRef)
-    case txout of
-        Just output -> pure $ Tx.txOutValue output
-        Nothing ->
-            WAPI.throwOtherError $ "Unable to find TxOut for " <> fromString (show outputRef)
-
 lookupValue ::
     ( Member (Error WAPI.WalletAPIError) effs
     , Member ChainIndexQueryEffect effs
@@ -327,61 +240,7 @@ lookupValue outputRef@TxIn {txInRef} = do
         Nothing ->
             WAPI.throwOtherError $ "Unable to find TxOut for " <> fromString (show outputRef)
 
--- | Balance an unbalanced transaction by adding missing inputs and outputs.
---
--- TODO: To delete. Uses the old chain index.
-handleBalanceTxOld ::
-    forall effs.
-    ( Member (State WalletState) effs
-    , Member ChainIndexEffect effs -- TODO delete
-    , Member (Error WAPI.WalletAPIError) effs
-    , Member (LogMsg TxBalanceMsg) effs
-    )
-    => Map.Map TxOutRef TxOut
-    -> UnbalancedTx
-    -> Eff effs Tx
-handleBalanceTxOld utxo UnbalancedTx{unBalancedTxTx, unBalancedTxUtxoIndex} = do
-    let filteredUnbalancedTxTx = removeEmptyOutputs unBalancedTxTx
-    let txInputs = Set.toList $ Tx.txInputs filteredUnbalancedTxTx
-    ownPubKey <- gets (toPublicKey . view ownPrivateKey)
-    inputValues <- traverse (lookupValueOld unBalancedTxUtxoIndex) (Set.toList $ Tx.txInputs filteredUnbalancedTxTx)
-    collateral  <- traverse (lookupValueOld unBalancedTxUtxoIndex) (Set.toList $ Tx.txCollateral filteredUnbalancedTxTx)
-    let fees = txFee filteredUnbalancedTxTx
-        left = txMint filteredUnbalancedTxTx <> fold inputValues
-        right = fees <> foldMap (view Tx.outValue) (filteredUnbalancedTxTx ^. Tx.outputs)
-        remainingFees = fees PlutusTx.- fold collateral -- TODO: add collateralPercent
-        balance = left PlutusTx.- right
-        (neg, pos) = Value.split balance
-
-    tx' <- if Value.isZero pos
-           then do
-               logDebug NoOutputsAdded
-               pure filteredUnbalancedTxTx
-           else do
-                logDebug $ AddingPublicKeyOutputFor pos
-                pure $ addOutputs ownPubKey pos filteredUnbalancedTxTx
-
-    tx'' <- if Value.isZero neg
-            then do
-                logDebug NoInputsAdded
-                pure tx'
-            else do
-                logDebug $ AddingInputsFor neg
-                -- filter out inputs from utxo that are already in unBalancedTx
-                let inputsOutRefs = map Tx.txInRef txInputs
-                    filteredUtxo = flip Map.filterWithKey utxo $ \txOutRef _ ->
-                        txOutRef `notElem` inputsOutRefs
-                addInputsOld filteredUtxo ownPubKey neg tx'
-
-    if remainingFees `Value.leq` PlutusTx.zero
-    then do
-        logDebug NoCollateralInputsAdded
-        pure tx''
-    else do
-        logDebug $ AddingCollateralInputsFor remainingFees
-        addCollateralOld utxo remainingFees tx''
-
--- | balance an unbalanced transaction by adding missing inputs and outputs
+-- | Balance an unbalanced transaction by adding missing inputs and outputs
 handleBalanceTx ::
     forall effs.
     ( Member (State WalletState) effs
@@ -437,21 +296,6 @@ addOutputs :: PubKey -> Value -> Tx -> Tx
 addOutputs pk vl tx = tx & over Tx.outputs (pko :) where
     pko = Tx.pubKeyTxOut vl pk
 
--- | TODO: To delete. Uses the old chain index.
-addCollateralOld
-    :: ( Member (Error WAPI.WalletAPIError) effs
-       )
-    => Map.Map TxOutRef TxOut
-    -> Value
-    -> Tx
-    -> Eff effs Tx
-addCollateralOld mp vl tx = do
-    (spend, _) <- selectCoin (second Tx.txOutValue <$> Map.toList mp) vl
-    let addTxCollateral =
-            let ins = Set.fromList (Tx.pubKeyTxIn . fst <$> spend)
-            in over Tx.collateralInputs (Set.union ins)
-    pure $ tx & addTxCollateral
-
 addCollateral
     :: ( Member (Error WAPI.WalletAPIError) effs
        )
@@ -465,33 +309,6 @@ addCollateral mp vl tx = do
             let ins = Set.fromList (Tx.pubKeyTxIn . fst <$> spend)
             in over Tx.collateralInputs (Set.union ins)
     pure $ tx & addTxCollateral
-
--- | @addInputs mp pk vl tx@ selects transaction outputs worth at least
---   @vl@ from the UTXO map @mp@ and adds them as inputs to @tx@. A public
---   key output for @pk@ is added containing any leftover change.
---
--- | TODO: To delete. Uses the old chain index.
-addInputsOld
-    :: ( Member (Error WAPI.WalletAPIError) effs
-       )
-    => Map.Map TxOutRef TxOut
-    -> PubKey
-    -> Value
-    -> Tx
-    -> Eff effs Tx
-addInputsOld mp pk vl tx = do
-    (spend, change) <- selectCoin (second Tx.txOutValue <$> Map.toList mp) vl
-    let
-
-        addTxIns  =
-            let ins = Set.fromList (Tx.pubKeyTxIn . fst <$> spend)
-            in over Tx.inputs (Set.union ins)
-
-        addTxOuts = if Value.isZero change
-                    then id
-                    else addOutputs pk change
-
-    pure $ tx & addTxOuts & addTxIns
 
 -- | @addInputs mp pk vl tx@ selects transaction outputs worth at least
 --   @vl@ from the UTXO map @mp@ and adds them as inputs to @tx@. A public

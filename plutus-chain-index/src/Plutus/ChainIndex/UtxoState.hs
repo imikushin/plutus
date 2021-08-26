@@ -43,7 +43,7 @@ import           Data.Set                (Set)
 import qualified Data.Set                as Set
 import           GHC.Generics            (Generic)
 import           Ledger                  (TxIn (txInRef), TxOutRef (..))
-import           Plutus.ChainIndex.Tx    (ChainIndexTx (..), txOutRefs)
+import           Plutus.ChainIndex.Tx    (ChainIndexTx (..), txOutsWithRef)
 import           Plutus.ChainIndex.Types (Tip (..))
 import           Prettyprinter           (Pretty (..), (<+>))
 
@@ -83,7 +83,7 @@ makeLenses ''UtxoState
 fromTx :: ChainIndexTx -> TxUtxoBalance
 fromTx tx@ChainIndexTx{_citxInputs} =
     TxUtxoBalance
-        { _tubUnspentOutputs = Set.fromList $ fmap snd $ txOutRefs tx
+        { _tubUnspentOutputs = Set.fromList $ fmap snd $ txOutsWithRef tx
         , _tubUnmatchedSpentInputs = Set.mapMonotonic txInRef _citxInputs
         }
 

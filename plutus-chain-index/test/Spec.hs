@@ -19,7 +19,7 @@ import           Hedgehog                             (Property, annotateShow, a
 import qualified Hedgehog.Gen                         as Gen
 import qualified Hedgehog.Range                       as Range
 import qualified Plutus.ChainIndex.Emulator.DiskState as DiskState
-import           Plutus.ChainIndex.Tx                 (txOutRefs)
+import           Plutus.ChainIndex.Tx                 (txOutsWithRef)
 import           Plutus.ChainIndex.Types              (Tip (..))
 import           Plutus.ChainIndex.UtxoState          (InsertUtxoSuccess (..), RollbackResult (..), TxUtxoBalance (..))
 import qualified Plutus.ChainIndex.UtxoState          as UtxoState
@@ -73,7 +73,7 @@ addressMapAndTxShouldShareTxOuts :: Property
 addressMapAndTxShouldShareTxOuts = property $ do
     chainIndexTx <- forAll $ Gen.evalUtxoGenState Gen.genTx
     let diskState = DiskState.fromTx chainIndexTx
-        chainIndexTxOutRefs = Set.fromList $ fmap snd $ txOutRefs chainIndexTx
+        chainIndexTxOutRefs = Set.fromList $ fmap snd $ txOutsWithRef chainIndexTx
         addressMapTxOutRefs =
           mconcat $ diskState ^.. DiskState.addressMap . DiskState.unCredentialMap . folded
     chainIndexTxOutRefs === addressMapTxOutRefs

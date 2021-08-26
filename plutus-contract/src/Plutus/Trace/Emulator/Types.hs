@@ -71,7 +71,7 @@ import           Data.Text.Prettyprint.Doc      (Pretty (..), braces, colon, fil
 import           GHC.Generics                   (Generic)
 import           Ledger.Blockchain              (Block)
 import           Ledger.Slot                    (Slot (..))
-import qualified Plutus.ChainIndex              as ChainIndex
+import           Plutus.ChainIndex              (ChainIndexQueryEffect)
 import           Plutus.Contract                (Contract (..), WalletAPIError)
 import           Plutus.Contract.Effects        (PABReq, PABResp)
 import           Plutus.Contract.Resumable      (Request (..), Requests (..), Response (..))
@@ -81,7 +81,7 @@ import           Plutus.Contract.Types          (ResumableResult (..), Suspended
 import qualified Plutus.Contract.Types          as Contract.Types
 import           Plutus.Trace.Scheduler         (AgentSystemCall, ThreadId)
 import qualified Wallet.API                     as WAPI
-import           Wallet.Effects                 (ChainIndexEffect, NodeClientEffect, WalletEffect)
+import           Wallet.Effects                 (NodeClientEffect, WalletEffect)
 import           Wallet.Emulator.LogMessages    (RequestHandlerLogMsg, TxBalanceMsg)
 import           Wallet.Emulator.Wallet         (Wallet (..))
 import           Wallet.Types                   (ContractInstanceId, EndpointDescription, Notification (..),
@@ -123,8 +123,7 @@ type EmulatedWalletEffects' effs =
         WalletEffect
         ': Error WAPI.WalletAPIError
         ': NodeClientEffect
-        ': ChainIndexEffect -- TODO: Delete when new chain index is fully integrated
-        ': ChainIndex.ChainIndexQueryEffect
+        ': ChainIndexQueryEffect
         ': LogObserve (LogMessage T.Text)
         ': LogMsg RequestHandlerLogMsg
         ': LogMsg TxBalanceMsg

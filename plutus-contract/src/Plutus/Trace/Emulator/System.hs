@@ -13,8 +13,7 @@ maker thread for the blockchain / network.
 
 -}
 module Plutus.Trace.Emulator.System
-  ( launchSystemThreadsOld
-  , launchSystemThreads
+  ( launchSystemThreads
   , appendNewTipBlock
   ) where
 
@@ -25,7 +24,6 @@ import           Data.Foldable                 (traverse_)
 import           Data.Maybe                    (maybeToList)
 import qualified Data.Text                     as Text
 import qualified Data.Text.Encoding            as Text
-import           Wallet.Effects                (startWatching)
 import           Wallet.Emulator.Chain         (ChainControlEffect, modifySlot, processBlock)
 import           Wallet.Emulator.MultiAgent    (MultiAgentControlEffect, MultiAgentEffect, walletAction,
                                                 walletControlAction)
@@ -38,9 +36,8 @@ import           Plutus.ChainIndex             (BlockId (..), ChainIndexControlE
 import           Plutus.Trace.Emulator.Types   (EmulatorMessage (..))
 import           Plutus.Trace.Scheduler        (EmSystemCall, MessageCall (..), Priority (..), Tag, fork, mkSysCall,
                                                 sleep)
-import           Wallet.Emulator.ChainIndex    (chainIndexNotify)
 import           Wallet.Emulator.NodeClient    (ChainClientNotification (..), clientNotify)
-import           Wallet.Emulator.Wallet        (Wallet (..), walletAddress)
+import           Wallet.Emulator.Wallet        (Wallet (..))
 
 {- Note [Simulator Time]
 
@@ -72,23 +69,6 @@ last time it ran in the order they arrived. So no messages are dropped - they
 just arrive later.
 
 -}
-
--- | Start the system threads.
---
--- TODO: To delete. Uses the old chain index.
-launchSystemThreadsOld :: forall effs.
-    ( Member ChainControlEffect effs
-    , Member MultiAgentEffect effs
-    , Member MultiAgentControlEffect effs
-    )
-    => [Wallet]
-    -> Eff (Yield (EmSystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) ()
-launchSystemThreadsOld wallets = do
-    _ <- sleep @effs @EmulatorMessage Sleeping
-    -- 1. Threads for updating the agents' states. See note [Simulated Agents]
-    traverse_ (\w -> fork @effs @EmulatorMessage (agentTag w) Normal $ agentThreadOld @effs w) wallets
-    -- 2. Block maker thread. See note [Simulator Time]
-    void $ fork @effs @EmulatorMessage blockMakerTag Normal (blockMaker @effs)
 
 -- | Start the system threads.
 launchSystemThreads :: forall effs.
@@ -125,29 +105,6 @@ blockMaker = go where
         newSlot <- modifySlot succ
         _ <- mkSysCall @effs Sleeping $ Left $ Broadcast $ NewSlot [newBlock] newSlot
         _ <- sleep @effs @EmulatorMessage @effs2 Sleeping
-        go
-
--- | Thread for a simulated agent. See note [Simulated Agents]
---
--- TODO To delete. Uses the old chain index
-agentThreadOld :: forall effs effs2.
-    ( Member MultiAgentEffect effs2
-    , Member MultiAgentControlEffect effs2
-    , Member (Yield (EmSystemCall effs EmulatorMessage) (Maybe EmulatorMessage)) effs2
-    )
-    => Wallet
-    -> Eff effs2 ()
-agentThreadOld wllt = walletAction wllt (startWatching $ walletAddress wllt) >> go where
-    go = do
-        e <- sleep @effs @EmulatorMessage Sleeping
-        let notis = maybeToList e >>= \case
-                NewSlot blocks slot -> fmap BlockValidated blocks ++ [SlotChanged slot]
-                _                   -> []
-
-        forM_ notis $ \n ->
-            walletControlAction wllt $ do
-                clientNotify n
-                chainIndexNotify n
         go
 
 -- | Thread for a simulated agent. See note [Simulated Agents]

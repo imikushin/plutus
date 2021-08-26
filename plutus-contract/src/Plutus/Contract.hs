@@ -40,25 +40,13 @@ module Plutus.Contract(
     , Request.endpointWithMeta
     , Schema.EmptySchema
     -- * Blockchain events
-    , Wallet.Types.AddressChangeRequest(..)
-    , Wallet.Types.AddressChangeResponse(..)
-    , Request.addressChangeRequestOld
-    , Request.nextTransactionsAtOld
-    , Request.watchAddressUntilSlotOld
     , Request.watchAddressUntilSlot
-    , Request.watchAddressUntilTimeOld
     , Request.watchAddressUntilTime
-    , Request.fundsAtAddressGtOld
     , Request.fundsAtAddressGt
-    , Request.fundsAtAddressGeqOld
     , Request.fundsAtAddressGeq
-    , Request.awaitUtxoSpentOld
     , Request.awaitUtxoSpent
-    , Request.utxoIsSpentOld
     , Request.utxoIsSpent
-    , Request.awaitUtxoProducedOld
     , Request.awaitUtxoProduced
-    , Request.utxoIsProducedOld
     , Request.utxoIsProduced
     -- * Chain index requests
     , Request.datumFromHash
@@ -69,11 +57,9 @@ module Plutus.Contract(
     , Request.txFromTxId
     , Request.utxoRefMembership
     , Request.utxosAt
-    , Request.utxosWithTxAt
+    , Request.utxosTxOutTxAt
+    , Request.utxosTxOutTxFromTx
     , Request.getTip
-    -- * UTXO set
-    , UtxoMap
-    , Request.utxoAtOld
     -- * Wallet's own public key
     , Request.ownPubKey
     -- * Contract instance Id
@@ -83,20 +69,15 @@ module Plutus.Contract(
     , tell
     -- * Transactions
     , WalletAPIError
-    , Request.submitTxOld
     , Request.submitTx
     , Request.submitTxConfirmed
-    , Request.submitTxConstraintsOld
     , Request.submitTxConstraints
-    , Request.submitTxConstraintsSpendingOld
     , Request.submitTxConstraintsSpending
-    , Request.submitTxConstraintsWithOld
     , Request.submitTxConstraintsWith
     , Request.submitUnbalancedTx
     , Request.submitBalancedTx
     , Request.balanceTx
     , Request.mkTxConstraints
-    , Request.mkTxConstraintsOld
     -- ** Creating transactions
     , module Tx
     -- ** Tx confirmation
@@ -134,7 +115,6 @@ import           Plutus.Contract.Types          (AsCheckpointError (..), AsContr
 import qualified Control.Monad.Freer.Extras.Log as L
 import qualified Control.Monad.Freer.Writer     as W
 import           Data.Functor.Apply             (liftF2)
-import           Ledger.AddressMap              (UtxoMap)
 import           Prelude
 import           Wallet.API                     (WalletAPIError)
 import qualified Wallet.Types

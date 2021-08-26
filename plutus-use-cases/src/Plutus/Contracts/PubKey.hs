@@ -67,7 +67,7 @@ pubKeyContract
     )
     => PubKeyHash
     -> Value
-    -> Contract w s e (TxOutRef, Maybe ChainIndexTxOut, TxOutTx, TypedValidator PubKeyContract)
+    -> Contract w s e (TxOutRef, Maybe ChainIndexTxOut, TypedValidator PubKeyContract)
 pubKeyContract pk vl = mapError (review _PubKeyError   ) $ do
     let inst = typedValidator pk
         address = Scripts.validatorAddress inst
@@ -76,13 +76,13 @@ pubKeyContract pk vl = mapError (review _PubKeyError   ) $ do
     ledgerTx <- submitTxConstraints inst tx
 
     _ <- awaitTxConfirmed (txId ledgerTx)
-    let output = Map.toList
+    let refs = Map.keys
                $ Map.filter ((==) address . txOutAddress)
                $ unspentOutputsTx ledgerTx
 
-    case output of
+    case refs of
         []                   -> throwing _ScriptOutputMissing pk
-        [(outRef, outTxOut)] -> do
+        [outRef] -> do
             ciTxOut <- txOutFromRef outRef
-            pure (outRef, ciTxOut, TxOutTx{txOutTxTx = ledgerTx, txOutTxOut = outTxOut}, inst)
+            pure (outRef, ciTxOut, inst)
         _                    -> throwing _MultipleScriptOutputs pk

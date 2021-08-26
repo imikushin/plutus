@@ -30,8 +30,7 @@ module Plutus.PAB.App(
 
 import           Cardano.Api.NetworkId.Extra                    (NetworkIdWrapper (..))
 import           Cardano.BM.Trace                               (Trace, logDebug)
-import           Cardano.ChainIndex.Client                      (handleChainIndexClient)
-import qualified Cardano.ChainIndex.Types                       as ChainIndexOld
+import qualified Cardano.ChainIndex.Types                       as ChainIndex
 import           Cardano.Node.Client                            (handleNodeClientClient)
 import qualified Cardano.Node.Client                            as NodeClient
 import           Cardano.Node.Types                             (MockServerConfig (..))
@@ -160,13 +159,6 @@ appEffectHandlers storageBackend config trace BuiltinHandler{contractHandler} =
             . reinterpret (Core.handleMappedReader @(AppEnv a) @ClientEnv chainIndexEnv)
             . reinterpret2 (ChainIndex.handleChainIndexClient @IO)
 
-            -- handle 'ChainIndexEffect'
-            -- TODO: Remove. Old chain index
-            . flip handleError (throwError . ChainIndexError)
-            . interpret (Core.handleUserEnvReader @(Builtin a) @(AppEnv a))
-            . reinterpret (Core.handleMappedReader @(AppEnv a) @ClientEnv chainIndexEnv)
-            . reinterpret2 (handleChainIndexClient @IO)
-
             -- handle 'WalletEffect'
             . flip handleError (throwError . WalletClientError)
             . flip handleError (throwError . WalletError)
@@ -207,7 +199,7 @@ mkEnv appTrace appConfig@Config { dbConfig
              } = do
     walletClientEnv <- clientEnv (Wallet.baseUrl walletServerConfig)
     nodeClientEnv <- clientEnv mscBaseUrl
-    chainIndexEnv <- clientEnv (ChainIndexOld.ciBaseUrl chainIndexConfig)
+    chainIndexEnv <- clientEnv (ChainIndex.ciBaseUrl chainIndexConfig)
     dbConnection <- dbConnect appTrace dbConfig
     txSendHandle <- liftIO $ MockClient.runTxSender mscSocketPath
     -- This is for access to the slot number in the interpreter
