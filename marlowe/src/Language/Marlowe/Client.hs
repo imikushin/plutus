@@ -47,15 +47,17 @@ import           Ledger                       (CurrencySymbol, Datum (..), PubKe
 import qualified Ledger
 import           Ledger.Ada                   (adaSymbol, adaValueOf)
 import           Ledger.Address               (pubKeyHashAddress, scriptHashAddress)
+import           Ledger.Blockchain            (OnChainTx (Valid))
 import           Ledger.Constraints
 import qualified Ledger.Constraints           as Constraints
 import qualified Ledger.Interval              as Interval
 import           Ledger.Scripts               (Validator, datumHash, unitRedeemer)
 import qualified Ledger.TimeSlot              as TimeSlot
+import           Ledger.Tx                    (txId)
 import qualified Ledger.Typed.Scripts         as Scripts
 import           Ledger.Typed.Tx              (TypedScriptTxOut (..), tyTxOutData)
 import qualified Ledger.Value                 as Val
-import           Plutus.ChainIndex            (citxInputs, citxOutputs, citxTxId)
+import           Plutus.ChainIndex            (ChainIndexTx, citxInputs, citxOutputs, citxTxId, fromOnChainTx)
 import           Plutus.Contract
 import           Plutus.Contract.StateMachine (AsSMContractError (..), StateMachine (..), StateMachineClient (..), Void,
                                                WaitingResult (..))
@@ -77,7 +79,7 @@ type MarloweSchema =
 
 
 type MarloweCompanionSchema = EmptySchema
-type MarloweFollowSchema = Endpoint "follow" MarloweParams
+type MarloweFollowSchema = Endpoint "follow" ([ChainIndexTx], MarloweParams)
 
 
 data MarloweError =
@@ -152,11 +154,11 @@ instance Semigroup LastResult where
 instance Monoid LastResult where
     mempty = Unknown
 
-type MarloweContractState = LastResult
+type MarloweContractState = ([ChainIndexTx], LastResult)
 
 
 marloweFollowContract :: Contract ContractHistory MarloweFollowSchema MarloweError ()
-marloweFollowContract = awaitPromise $ endpoint @"follow" $ \params -> do
+marloweFollowContract = awaitPromise $ endpoint @"follow" $ \(txs, params) -> do
     let client = mkMarloweClient params
     let go [] = pure InProgress
         go (tx:rest) = do
@@ -165,7 +167,6 @@ marloweFollowContract = awaitPromise $ endpoint @"follow" $ \params -> do
                 Finished   -> pure Finished
                 InProgress -> go rest
 
-    let txs = []
     go txs >>= checkpointLoop (follow client params)
 
   where
@@ -192,7 +193,9 @@ marloweFollowContract = awaitPromise $ endpoint @"follow" $ \params -> do
         logInfo @String $ "Updating history from tx " <> show (view citxTxId tx)
         let inst = SM.typedValidator scInstance
         let address = Scripts.validatorAddress inst
-        utxos <- fmap (Map.filter ((==) address . view Ledger.ciTxOutAddress . fst) . Map.fromList) $ utxosTxOutTxFromTx tx
+        utxos <- fmap ( Map.filter ((==) address . view Ledger.ciTxOutAddress . fst)
+                      . Map.fromList
+                      ) $ utxosTxOutTxFromTx tx
         let states = SM.getStates scInstance utxos
         case findInput inst tx of
             -- if there's no TxIn for Marlowe contract that means
@@ -237,7 +240,7 @@ marlowePlutusContract = do
         (void $ mapError (review _MarloweError) $
             selectList [create, apply, auto, redeem, close])
         (\er -> do
-            tell $ SomeError er
+            tell ([], SomeError er)
             marlowePlutusContract)
   where
     create = endpoint @"create" $ \(owners, contract) -> do
@@ -252,11 +255,13 @@ marlowePlutusContract = do
         let tx = mustPayToTheScript marloweData payValue <> distributeRoleTokens
         let lookups = Constraints.typedValidatorLookups typedValidator
         utx <- either (throwing _ConstraintResolutionError) pure (Constraints.mkTx lookups tx)
-        submitTxConfirmed utx
+        tx <- submitUnbalancedTx utx
+        awaitTxConfirmed $ txId tx
+        tell ([fromOnChainTx $ Valid tx], Unknown)
         marlowePlutusContract
     apply = endpoint @"apply-inputs" $ \(params, slotInterval, inputs) -> do
         _ <- applyInputs params slotInterval inputs
-        tell OK
+        tell ([], OK)
         marlowePlutusContract
     redeem = promiseMap (mapError (review _MarloweError)) $ endpoint @"redeem" $ \(MarloweParams{rolesCurrency}, role, pkh) -> do
         let address = scriptHashAddress (mkRolePayoutValidatorHash rolesCurrency)
@@ -282,9 +287,10 @@ marlowePlutusContract = do
             lookups = Constraints.otherScript validator
                 <> Constraints.unspentOutputs utxos
                 <> Constraints.ownPubKeyHash pkh
-        tx <- either (throwing _ConstraintResolutionError) pure (Constraints.mkTx @Void lookups constraints)
-        _ <- submitUnbalancedTx tx
-        tell OK
+        utx <- either (throwing _ConstraintResolutionError) pure (Constraints.mkTx @Void lookups constraints)
+        tx <- submitUnbalancedTx utx
+        -- TODO Wait for tx to be confirmed before adding it here?
+        tell ([fromOnChainTx $ Valid tx], OK)
         marlowePlutusContract
     auto = endpoint @"auto" $ \(params, party, untilSlot) -> do
         let theClient = mkMarloweClient params
@@ -293,7 +299,7 @@ marlowePlutusContract = do
                 if canAutoExecuteContractForParty party marloweContract
                 then autoExecuteContract theClient party md
                 else do
-                    tell OK
+                    tell ([], OK)
                     marlowePlutusContract
 
         maybeState <- SM.getOnChainState theClient
@@ -303,18 +309,18 @@ marlowePlutusContract = do
                 case wr of
                     ContractEnded{} -> do
                         logInfo @String $ "Contract Ended for party " <> show party
-                        tell OK
+                        tell ([], OK)
                         marlowePlutusContract
                     Timeout{} -> do
                         logInfo @String $ "Contract Timeout for party " <> show party
-                        tell OK
+                        tell ([], OK)
                         marlowePlutusContract
                     Transition _ _ marloweData -> continueWith marloweData
                     InitialState _ marloweData -> continueWith marloweData
             Just (SM.OnChainState{SM.ocsTxOut=st}, _) -> do
                 let marloweData = tyTxOutData st
                 continueWith marloweData
-    close = endpoint @"close" $ \_ -> tell OK
+    close = endpoint @"close" $ \_ -> tell ([], OK)
 
 
     autoExecuteContract :: StateMachineClient MarloweData MarloweInput
@@ -349,7 +355,7 @@ marlowePlutusContract = do
                 case wr of
                     ContractEnded{} -> do
                         logInfo @String $ "Contract Ended"
-                        tell OK
+                        tell ([], OK)
                         marlowePlutusContract
                     Timeout{} -> do
                         logInfo @String $ "Contract Timeout"
@@ -359,12 +365,12 @@ marlowePlutusContract = do
 
             CloseContract -> do
                 logInfo @String $ "CloseContract"
-                tell OK
+                tell ([], OK)
                 marlowePlutusContract
 
             NotSure -> do
                 logInfo @String $ "NotSure"
-                tell OK
+                tell ([], OK)
                 marlowePlutusContract
 
           where

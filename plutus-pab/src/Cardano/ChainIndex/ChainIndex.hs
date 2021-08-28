@@ -38,6 +38,7 @@ syncState block slot = do
     currentTip <- ChainIndex.getTip
     appendNewTipBlock currentTip block slot
 
+-- | Process the chain index effects for the emulator.
 processChainIndexEffects ::
     MonadIO m
     => ChainIndexTrace

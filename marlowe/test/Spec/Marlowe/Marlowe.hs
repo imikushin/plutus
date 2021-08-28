@@ -100,8 +100,11 @@ zeroCouponBondTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 250
     T..&&. assertDone marlowePlutusContract (Trace.walletInstanceTag bob) (const True) "contract should close"
     T..&&. walletFundsChange alice (lovelaceValueOf 150)
     T..&&. walletFundsChange bob (lovelaceValueOf (-150))
-    T..&&. assertAccumState marlowePlutusContract (Trace.walletInstanceTag alice) ((==) OK) "should be OK"
-    T..&&. assertAccumState marlowePlutusContract (Trace.walletInstanceTag bob) ((==) OK) "should be OK"
+    T..&&. assertAccumState marlowePlutusContract (Trace.walletInstanceTag alice)
+    (\case (_, OK) -> True
+           _       -> False
+    ) "should be OK"
+    T..&&. assertAccumState marlowePlutusContract (Trace.walletInstanceTag bob) ((==) ([], OK)) "should be OK"
     ) $ do
     -- Init a contract
     let alicePk = PK (pubKeyHash $ walletPubKey alice)
@@ -136,8 +139,8 @@ zeroCouponBondTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 250
 errorHandlingTest :: TestTree
 errorHandlingTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 250) "Error handling"
     (assertAccumState marlowePlutusContract (Trace.walletInstanceTag alice)
-    (\case SomeError (TransitionError _) -> True
-           _                             -> False
+    (\case (_, SomeError (TransitionError _)) -> True
+           _                                  -> False
     ) "should be fail with SomeError"
     ) $ do
     -- Init a contract
@@ -171,17 +174,15 @@ trustFundTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 200) "Tr
     T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag alice) "contract should not have any errors"
     T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag bob) "contract should not have any errors"
     T..&&. walletFundsChange alice (lovelaceValueOf (-256) <> Val.singleton (rolesCurrency params) "alice" 1)
-    T..&&. walletFundsChange bob (lovelaceValueOf 256 <> Val.singleton (rolesCurrency params) "bob" 1)) $ do
-    -- Fails since moving to the new chain index, as there is no way to get all
-    -- transactions of a given address.
-    --T..&&. assertAccumState marloweFollowContract "bob follow"
-    --    (\state@ContractHistory{chParams, chHistory} ->
-    --        case chParams of
-    --            First (Just (mp, MarloweData{marloweContract})) -> mp == params && marloweContract == contract
-    --            _                                               -> False) "follower contract state"
-    --        --mp MarloweData{marloweContract} history
-    --        -- chParams == (_ params) && chParams == (_ contract))
-    --) $ do
+    T..&&. walletFundsChange bob (lovelaceValueOf 256 <> Val.singleton (rolesCurrency params) "bob" 1)
+    T..&&. assertAccumState marloweFollowContract "bob follow"
+        (\state@ContractHistory{chParams, chHistory} ->
+            case chParams of
+                First (Just (mp, MarloweData{marloweContract})) -> mp == params && marloweContract == contract
+                _                                               -> False) "follower contract state"
+            --mp MarloweData{marloweContract} history
+            -- chParams == (_ params) && chParams == (_ contract))
+    ) $ do
 
     -- Init a contract
     let alicePkh = pubKeyHash $ walletPubKey alice
@@ -207,7 +208,9 @@ trustFundTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 200) "Tr
             Trace.waitNSlots 17
 
             -- get contract's history and start following our contract
-            Trace.callEndpoint @"follow" bobFollowHdl pms
+            (aliceTxns, _) <- Trace.observableState aliceHdl
+            (bobTxns, _) <- Trace.observableState bobHdl
+            Trace.callEndpoint @"follow" bobFollowHdl (aliceTxns <> bobTxns, pms)
             Trace.waitNSlots 2
 
             Trace.callEndpoint @"apply-inputs" bobHdl (pms, Nothing, [INotify])

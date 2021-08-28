@@ -204,7 +204,7 @@ runConfigCommand contractHandler c@ConfigCommandArgs{ccaAvailability} (ForkComma
       pure asyncId
 
 -- Run the chain-index service
-runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig=Config { nodeServerConfig, chainIndexConfig }} ChainIndex = do
+runConfigCommand _ ConfigCommandArgs{ccaTrace, ccaPABConfig=Config { nodeServerConfig, chainIndexConfig }} ChainIndex =
     ChainIndex.main
         (toChainIndexLog ccaTrace)
         chainIndexConfig

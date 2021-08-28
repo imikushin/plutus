@@ -45,6 +45,7 @@ import           Data.Aeson                          (decode)
 import           Data.ByteString.Builder             (toLazyByteString)
 import           Data.Default                        (def)
 import           Data.Text.Encoding                  (encodeUtf8Builder)
+import           Plutus.ChainIndex                   (ChainIndexTx)
 import           Plutus.Contract.Effects             (aeDescription)
 import           Plutus.PAB.App                      (StorageBackend (..))
 import           Plutus.PAB.Run                      (runWithOpts)
@@ -141,11 +142,11 @@ marloweCompanionFollowerContractExample = do
       args   = createArgs hash hash
 
   companionContractId <- runApi $ activateContract $ ContractActivationArgs { caID = WalletCompanion, caWallet = wallet }
-  marlowContractId    <- runApi $ activateContract $ ContractActivationArgs { caID = MarloweApp, caWallet = wallet }
+  marloweContractId    <- runApi $ activateContract $ ContractActivationArgs { caID = MarloweApp, caWallet = wallet }
 
   sleep 2
 
-  runApi $ callEndpointOnInstance marlowContractId "create" args
+  runApi $ callEndpointOnInstance marloweContractId "create" args
 
   followerId <- runApi $ activateContract $ ContractActivationArgs { caID = MarloweFollower, caWallet = wallet }
 
@@ -155,11 +156,12 @@ marloweCompanionFollowerContractExample = do
 
   runWs followerId $ waitForEndpoint "follow"
 
-  runApi $ callEndpointOnInstance followerId "follow" mp
+  -- Extract the marlowe contract transactions in order to reconstruct the
+  -- history of the follow contract.
+  txs <- runWs marloweContractId $ waitForState extractMarloweContractTxs
+  runApi $ callEndpointOnInstance followerId "follow" (txs, mp)
 
-  -- TODO: Waits indefinitely after removing addressChangeRequest from old
-  -- chain index.
-  -- _ <- runWs followerId $ waitForState extractFollowState
+  _ <- runWs followerId $ waitForState extractFollowState
 
   -- We're happy if the above call completes.
 
@@ -190,6 +192,11 @@ extractMarloweParams vl = do
     (Marlowe.CompanionState s) <- either (const Nothing) Just (Aeson.parseEither Aeson.parseJSON vl)
     (params, _) <- listToMaybe $ Map.toList s
     pure params
+
+extractMarloweContractTxs :: Aeson.Value -> Maybe [ChainIndexTx]
+extractMarloweContractTxs vl = do
+  (txs, _) <- either (const Nothing) Just (Aeson.parseEither Aeson.parseJSON vl) :: Maybe ([ChainIndexTx], Marlowe.LastResult)
+  pure txs
 
 extractFollowState :: Aeson.Value -> Maybe Marlowe.ContractHistory
 extractFollowState vl = do
