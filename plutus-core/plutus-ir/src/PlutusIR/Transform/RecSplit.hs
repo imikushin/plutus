@@ -95,10 +95,8 @@ buildLocalDepGraph bs = AM.overlays . NE.toList $ fmap bindingSubGraph bs
 
       bindingSubGraph :: Binding tyname name uni fun a -> AM.AdjacencyMap PLC.Unique
       bindingSubGraph b =
-          let freeUniques = S.fromList (
-                             S.toList (fvBinding b)^..traversed.PLC.theUnique
-                             <> S.toList (ftvBinding b)^..traversed.PLC.theUnique
-                             )
+          let freeUniques = S.map (^.PLC.theUnique) (fvBinding b)
+                            <> S.map (^.PLC.theUnique) (ftvBinding b)
               occursIds = M.keysSet idTable `S.intersection` freeUniques
               occursPrincipals = nub $ M.elems $ idTable `M.restrictKeys` occursIds
           in AM.connect (AM.vertex $ b^.principal) (AM.vertices occursPrincipals)
